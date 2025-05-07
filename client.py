@@ -275,6 +275,7 @@ class ScreenShareClient:
         self.stream_window = tk.Toplevel()
         self.stream_window.title("Screen Share Stream")
         self.stream_window.attributes('-topmost', True)
+        self.stream_window.overrideredirect(True)  # Remove window decorations
         
         # Set up window dimensions
         display_width = max(150, self.stream_width)
