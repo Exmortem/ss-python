@@ -503,6 +503,8 @@ class ScreenShareClient:
             if self.update_id: # Cancel previous if any (belt-and-suspenders)
                  try: self.root.after_cancel(self.update_id)
                  except: pass
+            # Start update frame directly
+            self.root.after(100, self.update_frame)
             
         except (ValueError, socket.timeout, ConnectionRefusedError, OSError, Exception) as e:
             error_msg = f"Error connecting to {friendly_name}: {str(e)}"
@@ -597,6 +599,8 @@ class ScreenShareClient:
                     
                 except Exception as render_e:
                     print(f"[Error] Render failure: {render_e}")
+                    import traceback
+                    traceback.print_exc()
                     self.canvas_image_item = None
             
             # Update stats UI less frequently
@@ -606,6 +610,8 @@ class ScreenShareClient:
                 
         except Exception as e:
             print(f"[ERROR] Update frame error: {e}")
+            import traceback
+            traceback.print_exc()
             
         # Schedule next update based on mode
         if self.running:
@@ -613,10 +619,13 @@ class ScreenShareClient:
                 # For unlimited mode, use minimal delay but avoid starving system
                 if queue_fullness > 0.5:
                     # Queue filling up, go to max speed
-                    self.root.after_idle(self.update_frame)
+                    self.update_id = self.root.after_idle(self.update_frame)
                 else:
                     # Small delay to prevent CPU overload
-                    self.root.after(1, self.update_frame)
+                    self.update_id = self.root.after(1, self.update_frame)
+            else:
+                # This should never happen with our changes
+                self.update_id = self.root.after(16, self.update_frame)
         else:
             self.update_id = None
 
@@ -885,6 +894,8 @@ class ScreenShareClient:
             if self.update_id: # Cancel previous if any
                  try: self.root.after_cancel(self.update_id)
                  except: pass
+            # Start update frame directly
+            self.root.after(100, self.update_frame)
             
         except socket.timeout:
             self.status_label.config(text=f"Error: Connection timed out ({host}:{port if not connected_stream else control_port})")
