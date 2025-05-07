@@ -32,7 +32,7 @@ class ScreenShareClient:
         self.control_socket = None # New socket for control messages
         self.stream_window = None
         self.canvas = None
-        self.stream_label = None
+        self.stream_label = None  # Alternative to canvas for display
         self.stream_thread = None
         self.control_thread = None # Thread for sending control signals
         self.image_queue = queue.Queue(maxsize=60)  # Increased queue size for better buffering
@@ -45,6 +45,7 @@ class ScreenShareClient:
         self.update_id = None # Keep this to store the ID of the next scheduled update
         self.tk_image = None # Keep reference to PhotoImage
         self.canvas_image_item = None # ID of the image item on canvas
+        self.display_method = "canvas"  # Can be "canvas" or "label"
         
         # --- Frame rate settings ---
         self.unlimited_frame_rate = tk.BooleanVar(value=True)
@@ -276,20 +277,40 @@ class ScreenShareClient:
         
         # --- Use stream dimensions --- 
         geometry_string = f"{display_width}x{display_height}+0+0"
-        print(f"[Debug] Setting stream window geometry: {geometry_string}")
+        print(f"Setting stream window geometry: {geometry_string}")
         self.stream_window.geometry(geometry_string)  # Position at (0,0)
         # --- End Use ---
         
-        # Create canvas for stream, removing its border
-        self.canvas = tk.Canvas(
-            self.stream_window, 
-            width=self.stream_width,   # Use actual stream width
-            height=self.stream_height, # Use actual stream height
-            borderwidth=0,         
-            highlightthickness=0,  
-            bg='black'             
-        )
-        self.canvas.pack(fill="both", expand=True)
+        # Try both display methods
+        self.display_method = "label"  # Start with label method (better for remote desktop)
+        print(f"Using {self.display_method} display method")
+        
+        # Create a frame to hold the display widget
+        display_frame = tk.Frame(self.stream_window, bg='black')
+        display_frame.pack(fill="both", expand=True)
+        
+        if self.display_method == "canvas":
+            # Create canvas for stream, removing its border
+            self.canvas = tk.Canvas(
+                display_frame, 
+                width=self.stream_width,   # Use actual stream width
+                height=self.stream_height, # Use actual stream height
+                borderwidth=0,         
+                highlightthickness=0,  
+                bg='black'             
+            )
+            self.canvas.pack(fill="both", expand=True)
+            self.stream_label = None
+        else:
+            # Create label for stream (more compatible with some remote desktop software)
+            self.canvas = None
+            self.stream_label = tk.Label(
+                display_frame,
+                width=self.stream_width,
+                height=self.stream_height,
+                bg='black'
+            )
+            self.stream_label.pack(fill="both", expand=True)
         
         # Force a focus and update to ensure window is initialized properly
         self.stream_window.focus_force()
@@ -309,8 +330,7 @@ class ScreenShareClient:
         self.stream_window.deiconify()
         
         # Print diagnostic info
-        print(f"[Debug] Stream window created with dimensions: {self.stream_width}x{self.stream_height}")
-        print(f"[Debug] Canvas created with dimensions: {self.canvas.winfo_width()}x{self.canvas.winfo_height()}")
+        print(f"Stream window created with dimensions: {self.stream_width}x{self.stream_height}")
         self.root.after(500, self._check_canvas_size)  # Check size after things settle
     
     def _check_canvas_size(self):
@@ -557,41 +577,55 @@ class ScreenShareClient:
                     if latest_img.mode not in ['RGB', 'RGBA']:
                         latest_img = latest_img.convert('RGB')
                     
-                    # Create PhotoImage - this is the slow part
-                    try:
-                        # Try standard approach first
-                        self.tk_image = ImageTk.PhotoImage(image=latest_img)
-                    except Exception as img_err:
-                        print(f"Standard PhotoImage creation failed: {img_err}, trying alternate method")
-                        # Try again using a different approach for Parsec/remote desktop compatibility
-                        # Convert to a format more compatible with remote desktop solutions
-                        img_data = latest_img.tobytes()
-                        self.tk_image = tk.PhotoImage(width=latest_img.width, height=latest_img.height)
-                        self.tk_image.put(img_data, to=(0, 0, latest_img.width-1, latest_img.height-1))
-                    
-                    # Minimize canvas operations
-                    if self.canvas_image_item is None:
-                        # First frame
-                        self.canvas_image_item = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+                    # Display based on selected method
+                    if self.display_method == "canvas" and self.canvas:
+                        # Canvas method
+                        try:
+                            # First attempt: ImageTk
+                            self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                            
+                            # Display image on canvas
+                            if self.canvas_image_item is None:
+                                # First frame
+                                self.canvas_image_item = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+                            else:
+                                # Update existing item
+                                self.canvas.itemconfig(self.canvas_image_item, image=self.tk_image)
+                                
+                            # Keep reference to prevent garbage collection
+                            self.canvas.tk_image = self.tk_image
+                            
+                        except Exception as img_err:
+                            print(f"Canvas display error: {img_err}")
+                            raise
+                            
                     else:
-                        # Update existing item (faster than delete+create)
-                        self.canvas.itemconfig(self.canvas_image_item, image=self.tk_image)
+                        # Label method (more compatible with remote desktop)
+                        try:
+                            self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                            self.stream_label.config(image=self.tk_image)
+                            self.stream_label.image = self.tk_image  # Keep reference
+                        except Exception as label_err:
+                            print(f"Label display error: {label_err}, trying alternate method")
+                            # Last resort: resize and simplify the image
+                            try:
+                                # Resize to smaller dimensions if needed
+                                if latest_img.width > 800 or latest_img.height > 800:
+                                    scale_factor = min(800/latest_img.width, 800/latest_img.height)
+                                    new_width = int(latest_img.width * scale_factor)
+                                    new_height = int(latest_img.height * scale_factor)
+                                    latest_img = latest_img.resize((new_width, new_height), Image.LANCZOS)
+                                
+                                # Create new PhotoImage
+                                self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                                self.stream_label.config(image=self.tk_image)
+                                self.stream_label.image = self.tk_image
+                            except Exception as last_err:
+                                print(f"All display methods failed: {last_err}")
+                                raise
                     
-                    # Keep the reference to prevent garbage collection
-                    self.canvas.tk_image = self.tk_image
-                    
-                    # Force canvas to update immediately
-                    self.canvas.update_idletasks()
-                    
-                    # Only resize very occasionally
-                    if processed_count % 300 == 0:
-                        canvas_width = self.canvas.winfo_width()
-                        canvas_height = self.canvas.winfo_height()
-                        img_width, img_height = latest_img.size
-                        
-                        if canvas_width != img_width or canvas_height != img_height:
-                            self.canvas.config(width=img_width, height=img_height)
-                            self.stream_window.geometry(f"{img_width}x{img_height}+0+0")
+                    # Force the window to update
+                    self.stream_window.update_idletasks()
                     
                     # Track processing time (only once per batch)
                     process_end_time = time.time()
