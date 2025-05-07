@@ -12,12 +12,15 @@ import os
 import queue
 import sys
 import struct # Added for unpacking size
+import tempfile  # For temporary file-based image handling
 
 # Control Port offset
 CONTROL_PORT_OFFSET = 1
 
 # -- Add Parsec workaround flag --
 PARSEC_COMPATIBLE_MODE = True
+# -- Add file-based workaround --
+USE_FILE_BASED_IMAGES = True
 
 class ScreenShareClient:
     def __init__(self):
@@ -35,7 +38,7 @@ class ScreenShareClient:
         self.control_socket = None # New socket for control messages
         self.stream_window = None
         self.canvas = None
-        self.stream_label = None  # Alternative to canvas for display
+        self.stream_label = None
         self.stream_thread = None
         self.control_thread = None # Thread for sending control signals
         self.image_queue = queue.Queue(maxsize=60)  # Increased queue size for better buffering
@@ -262,71 +265,47 @@ class ScreenShareClient:
         # --- End Call --- 
         
     def create_stream_window(self):
-        """Create the borderless stream window using received dimensions."""
+        """Create the stream window."""
         # If window already exists and is valid, just show it
         if self.stream_window and self.stream_window.winfo_exists():
             self.stream_window.deiconify() 
             return
             
-        # If window doesn't exist or was destroyed, create it anew
+        # Create a new window
         self.stream_window = tk.Toplevel()
         self.stream_window.title("Screen Share Stream")
+        self.stream_window.attributes('-topmost', True)
         
-        # For Parsec compatibility, use normal window with decorations
-        if PARSEC_COMPATIBLE_MODE:
-            # Keep borderless but make it behave more like a normal window
-            self.stream_window.overrideredirect(False)
-        else:
-            # Original behavior
-            self.stream_window.attributes('-topmost', True)  
-            self.stream_window.overrideredirect(True)  # Remove window decorations
-        
-        # Ensure minimum dimensions for very small streams
+        # Set up window dimensions
         display_width = max(150, self.stream_width)
         display_height = max(30, self.stream_height)
         
-        # --- Use stream dimensions --- 
         geometry_string = f"{display_width}x{display_height}+0+0"
         print(f"Setting stream window geometry: {geometry_string}")
-        self.stream_window.geometry(geometry_string)  # Position at (0,0)
-        # --- End Use ---
+        self.stream_window.geometry(geometry_string)
         
-        # Super simple display setup for Parsec compatibility
-        self.display_method = "simple_label"
-        print(f"Using {self.display_method} display method")
-        
-        # Create an ultra-simple frame for the display
+        # Create a simple display frame
         display_frame = tk.Frame(self.stream_window, bg='black')
         display_frame.pack(fill="both", expand=True)
         
-        # Just use a simple label for everything
-        self.stream_label = tk.Label(
-            display_frame,
-            bg='black'
-        )
+        # Use label for display (simpler and more compatible)
+        self.stream_label = tk.Label(display_frame, bg='black')
         self.stream_label.pack(fill="both", expand=True)
-        self.canvas = None  # Not using canvas in this mode
         
-        # Make sure it's ready
-        self.stream_window.update()
+        # Add close button
+        close_button_x = max(0, display_width - 30)
+        close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
+        close_button.place(x=close_button_x, y=5)
         
-        # Only add close button if not in Parsec mode (regular window has its own close)
-        if not PARSEC_COMPATIBLE_MODE:
-            # Add close button (linked to stop, which calls on_closing)
-            close_button_x = max(0, display_width - 30) 
-            close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
-            close_button.place(x=close_button_x, y=5)
-        
-        # Bind keys and set focus
+        # Bind keys
         self.stream_window.bind("<KeyPress>", self.on_key_press)
         self.stream_window.bind("<KeyRelease>", self.on_key_release)
         self.stream_window.focus_set()
         
-        # Make sure it's visible
+        # Make window visible
         self.stream_window.deiconify()
         
-        # Print diagnostic info
-        print(f"Stream window created with dimensions: {self.stream_width}x{self.stream_height}")
+        print(f"Stream window created with dimensions: {display_width}x{display_height}")
     
     def on_key_press(self, event):
         """Callback for key press events on the stream window."""
@@ -491,161 +470,196 @@ class ScreenShareClient:
                  try: self.root.after_cancel(self.update_id)
                  except: pass
             # Start update frame directly
-            self.root.after(100, self.update_frame)
+            self.update_id = self.root.after(100, self.update_frame)
             
         except (ValueError, socket.timeout, ConnectionRefusedError, OSError, Exception) as e:
             error_msg = f"Error connecting to {friendly_name}: {str(e)}"
             print(error_msg)
             self.status_label.config(text=error_msg)
             self.close_sockets()
+            
+    def manual_connect(self):
+        """Connect to host using manually entered IP and port"""
+        try:
+            host = self.ip_entry.get()
+            port = int(self.port_entry.get())
+            
+            connected_stream = False
+            connected_control = False
+        
+            # Connect stream socket
+            print(f"Connecting stream to {host}:{port}...")
+            self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.stream_socket.settimeout(5)
+            self.stream_socket.connect((host, port))
+            self.stream_socket.settimeout(None)
+            connected_stream = True
+            print("Stream socket connected.")
 
+            # --- Receive Dimensions (Identical logic as in connect_to_host) ---
+            print(f"[*] Receiving stream dimensions from {host}:{port}...")
+            try:
+                self.stream_socket.settimeout(5.0)
+                size_data = self.stream_socket.recv(4)
+                if not size_data or len(size_data) < 4: raise ValueError("No dim size")
+                msg_len = struct.unpack('>I', size_data)[0]
+                if msg_len > 4096: raise ValueError(f"Dim size too large: {msg_len}")
+                dims_json_bytes = self.stream_socket.recv(msg_len)
+                if not dims_json_bytes or len(dims_json_bytes) < msg_len: raise ValueError("No dim json")
+                dims_json = dims_json_bytes.decode('utf-8')
+                dims = json.loads(dims_json)
+                new_width = dims.get('width')
+                new_height = dims.get('height')
+                if not isinstance(new_width, int) or not isinstance(new_height, int) or new_width <= 0 or new_height <= 0:
+                     raise ValueError(f"Invalid dims: w={new_width}, h={new_height}")
+                self.stream_width = new_width
+                self.stream_height = new_height
+                self.stream_format = dims.get('format', 'jpeg') # Get format, default to jpeg
+                print(f"[*] Received and set stream dimensions: {self.stream_width}x{self.stream_height}, Format: {self.stream_format}")
+                self.stream_socket.settimeout(None)
+            except (socket.timeout, struct.error, json.JSONDecodeError, ValueError, ConnectionResetError, BrokenPipeError, OSError) as dim_e:
+                 print(f"[ERROR] Failed to receive/parse dimensions: {dim_e}. Using defaults.")
+                 self.stream_width = 500
+                 self.stream_height = 500
+                 self.stream_socket.settimeout(None)
+                 if not size_data or not dims_json_bytes:
+                     self.close_sockets()
+                     self.status_label.config(text="Error: Failed receiving host settings.")
+                     return
+            # --- End Receive Dimensions ---
+
+            # Connect control socket
+            control_port = port + CONTROL_PORT_OFFSET
+            print(f"Connecting control to {host}:{control_port}...")
+            self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.control_socket.settimeout(5)
+            self.control_socket.connect((host, control_port))
+            self.control_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.control_socket.settimeout(None)
+            connected_control = True
+            print("Control socket connected.")
+
+            # If both connected successfully
+            self.running = True
+            self.connected = True
+            self.status_label.config(text=f"Connected to {host}:{port} (Ctrl:{control_port}, Size:{self.stream_width}x{self.stream_height}, Format: {self.stream_format})")
+            self.connect_button.config(state="disabled")
+            self.disconnect_button.config(state="normal")
+            self.manual_connect_button.config(state="disabled")
+            self.service_listbox.config(state="disabled")
+            self.save_last_ip(host)
+            self.create_stream_window()
+            # --- Start background thread --- 
+            threading.Thread(target=self.receive_stream, daemon=True).start()
+            # --- Kick off the first UI update --- 
+            if self.update_id: # Cancel previous if any
+                 try: self.root.after_cancel(self.update_id)
+                 except: pass
+            # Start update frame directly
+            self.update_id = self.root.after(100, self.update_frame)
+            
+        except socket.timeout:
+            self.status_label.config(text=f"Error: Connection timed out ({host}:{port if not connected_stream else control_port})")
+            self.close_sockets()
+        except ConnectionRefusedError:
+            self.status_label.config(text=f"Error: Connection refused ({host}:{port if not connected_stream else control_port})")
+            self.close_sockets()
+        except ValueError:
+             self.status_label.config(text="Error: Invalid Port Number")
+             self.close_sockets()
+        except Exception as e:
+            self.status_label.config(text=f"Error connecting: {str(e)}")
+            self.close_sockets()
+            
+    def close_sockets(self):
+        """Safely close both stream and control sockets."""
+        print("Closing sockets...")
+        if self.stream_socket:
+            try:
+                self.stream_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass # Ignore if already closed
+            finally:
+                 self.stream_socket.close()
+                 self.stream_socket = None
+        if self.control_socket:
+            try:
+                self.control_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                 pass # Ignore if already closed
+            finally:
+                self.control_socket.close()
+                self.control_socket = None
+        self.connected = False
+        print("Sockets closed.")
+        
     def update_frame(self):
-        """Updates the display with the latest image from the queue. Called from main thread."""
-        # Force update stats at least every second even if frames aren't displaying
+        """Update the display with the newest frame from the queue."""
+        # Update stats regularly regardless of frame display
         current_time = time.time()
         if current_time - self.stats_last_update >= self.stats_update_interval:
-            # Force update stats even if we don't display a frame
             self.update_statistics()
             
         if not self.connected or self.stream_window is None or not self.stream_window.winfo_exists():
-             print("Early exit: connected={}, window exists={}".format(
-                 self.connected, 
-                 self.stream_window is not None and self.stream_window.winfo_exists()))
-             self.update_id = None # Ensure no rescheduling if exited
-             return 
-             
+            self.update_id = None
+            return
+            
         try:
-            latest_img = None
-            processed_count = 0
+            # Process timing
             process_start_time = time.time()
             
             # Get queue status
             queue_size = self.image_queue.qsize()
-            queue_fullness = queue_size / self.image_queue.maxsize
             
-            # Always just process one frame in Parsec mode to reduce CPU load
-            if PARSEC_COMPATIBLE_MODE:
-                batch_size = 1
-            else:
-                # Determine batch size based on queue status
-                if self.unlimited_frame_rate.get():
-                    if queue_fullness > 0.8:
-                        # Queue is getting full, grab more frames
-                        batch_size = min(10, queue_size // 2)  # Reduced from 20 to 10
-                    elif queue_fullness > 0.5:
-                        # Queue moderately full
-                        batch_size = 5  # Reduced from 8 to 5
-                    else:
-                        # Normal operation
-                        batch_size = 2  # Reduced from 4 to 2
-                else:
-                    # Limited FPS mode - just process 1 frame
-                    batch_size = 1
-                
-            # Get frames in batches (more efficient than one at a time)
-            frames = []
-            for _ in range(min(batch_size, queue_size)):
+            # Get the most recent frame
+            latest_img = None
+            processed_count = 0
+            
+            # Get one frame at a time
+            if not self.image_queue.empty():
                 try:
-                    img = self.image_queue.get_nowait()
-                    frames.append(img)
-                    processed_count += 1
+                    latest_img = self.image_queue.get_nowait()
+                    processed_count = 1
                 except queue.Empty:
-                    break
+                    pass
                     
-            # Update stats regardless of whether we render or not
+            # Update stats
             self.stats['frames_displayed'] += processed_count
             self.stats['interval_frames_displayed'] += processed_count
                     
-            # Use the most recent frame only
-            if frames:
-                latest_img = frames[-1]
-            else:
-                # If no new frames, just schedule next update and return
-                self._schedule_next_frame(queue_fullness)
-                return
-                
+            # Display the frame
             if latest_img:
                 try:
-                    # Fast-path: Skip conversion if already in right format
+                    # Convert if needed
                     if latest_img.mode not in ['RGB', 'RGBA']:
                         latest_img = latest_img.convert('RGB')
                     
-                    # PARSEC COMPATIBLE MODE: Much simpler approach
-                    if PARSEC_COMPATIBLE_MODE:
-                        # Deliberately resize to make it faster (if needed)
-                        if latest_img.width > 1600 or latest_img.height > 900:
-                            scale_factor = min(1600/latest_img.width, 900/latest_img.height)
-                            new_width = int(latest_img.width * scale_factor)
-                            new_height = int(latest_img.height * scale_factor)
-                            latest_img = latest_img.resize((new_width, new_height), Image.LANCZOS)
+                    # Create Tkinter-compatible image
+                    self.tk_image = ImageTk.PhotoImage(image=latest_img)
                     
-                        # Create the image and display it
-                        try:
-                            self.tk_image = ImageTk.PhotoImage(image=latest_img)
-                            if self.stream_label:
-                                self.stream_label.config(image=self.tk_image)
-                                self.stream_label.image = self.tk_image
-                        except Exception as e:
-                            print(f"Simple display failed: {e}")
-                            import traceback
-                            traceback.print_exc()
-                    else:
-                        # Original canvas-based display for non-Parsec environments
-                        if self.canvas:
-                            # Canvas method
-                            self.tk_image = ImageTk.PhotoImage(image=latest_img)
-                            
-                            if self.canvas_image_item is None:
-                                self.canvas_image_item = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
-                            else:
-                                self.canvas.itemconfig(self.canvas_image_item, image=self.tk_image)
-                                
-                            self.canvas.tk_image = self.tk_image
+                    # Display in label
+                    self.stream_label.config(image=self.tk_image)
+                    self.stream_label.image = self.tk_image  # Keep reference
                     
-                    # Force a UI update
-                    if PARSEC_COMPATIBLE_MODE:
-                        self.stream_window.update_idletasks()
-                    
-                    # Track processing time
+                    # Performance timing
                     process_end_time = time.time()
                     process_time = process_end_time - process_start_time
                     self.stats['processing_times'].append(process_time)
                     if process_time > self.stats['max_processing_time']:
                         self.stats['max_processing_time'] = process_time
                     
-                except Exception as render_e:
-                    print(f"[Error] Render failure: {render_e}")
-                    import traceback
-                    traceback.print_exc()
-            
+                except Exception as e:
+                    print(f"[Error] Display error: {e}")
+                    
         except Exception as e:
             print(f"[ERROR] Update frame error: {e}")
-            import traceback
-            traceback.print_exc()
             
-        # Schedule next update
-        self._schedule_next_frame(queue_fullness)
-        
-    def _schedule_next_frame(self, queue_fullness):
-        """Helper to schedule the next frame update."""
-        if not self.running:
-            self.update_id = None
-            return
-            
-        # Use much more conservative timing in Parsec mode
-        if PARSEC_COMPATIBLE_MODE:
-            # Always use fixed timing for stability
-            self.update_id = self.root.after(20, self.update_frame)  # ~50fps max
+        # Schedule next update - always use a small fixed delay for stability
+        if self.running:
+            self.update_id = self.root.after(10, self.update_frame)
         else:
-            # Original dynamic timing
-            if self.unlimited_frame_rate.get():
-                if queue_fullness > 0.5:
-                    self.update_id = self.root.after_idle(self.update_frame)
-                else:
-                    self.update_id = self.root.after(1, self.update_frame)
-            else:
-                self.update_id = self.root.after(16, self.update_frame)
-
+            self.update_id = None
+    
     def receive_stream(self):
         frame_count = 0 # Simple frame counter for logging
         log_interval = 100 # Log every 100 frames
@@ -834,121 +848,6 @@ class ScreenShareClient:
              print(f"_update_ui_after_stop: Error updating discovery UI: {e}")
              pass
             
-    def manual_connect(self):
-        """Connect to host using manually entered IP and port"""
-        try:
-            host = self.ip_entry.get()
-            port = int(self.port_entry.get())
-            
-            connected_stream = False
-            connected_control = False
-        
-            # Connect stream socket
-            print(f"Connecting stream to {host}:{port}...")
-            self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.stream_socket.settimeout(5)
-            self.stream_socket.connect((host, port))
-            self.stream_socket.settimeout(None)
-            connected_stream = True
-            print("Stream socket connected.")
-
-            # --- Receive Dimensions (Identical logic as in connect_to_host) ---
-            print(f"[*] Receiving stream dimensions from {host}:{port}...")
-            try:
-                self.stream_socket.settimeout(5.0)
-                size_data = self.stream_socket.recv(4)
-                if not size_data or len(size_data) < 4: raise ValueError("No dim size")
-                msg_len = struct.unpack('>I', size_data)[0]
-                if msg_len > 4096: raise ValueError(f"Dim size too large: {msg_len}")
-                dims_json_bytes = self.stream_socket.recv(msg_len)
-                if not dims_json_bytes or len(dims_json_bytes) < msg_len: raise ValueError("No dim json")
-                dims_json = dims_json_bytes.decode('utf-8')
-                dims = json.loads(dims_json)
-                new_width = dims.get('width')
-                new_height = dims.get('height')
-                if not isinstance(new_width, int) or not isinstance(new_height, int) or new_width <= 0 or new_height <= 0:
-                     raise ValueError(f"Invalid dims: w={new_width}, h={new_height}")
-                self.stream_width = new_width
-                self.stream_height = new_height
-                self.stream_format = dims.get('format', 'jpeg') # Get format, default to jpeg
-                print(f"[*] Received and set stream dimensions: {self.stream_width}x{self.stream_height}, Format: {self.stream_format}")
-                self.stream_socket.settimeout(None)
-            except (socket.timeout, struct.error, json.JSONDecodeError, ValueError, ConnectionResetError, BrokenPipeError, OSError) as dim_e:
-                 print(f"[ERROR] Failed to receive/parse dimensions: {dim_e}. Using defaults.")
-                 self.stream_width = 500
-                 self.stream_height = 500
-                 self.stream_socket.settimeout(None)
-                 if not size_data or not dims_json_bytes:
-                     self.close_sockets()
-                     self.status_label.config(text="Error: Failed receiving host settings.")
-                     return
-            # --- End Receive Dimensions ---
-
-            # Connect control socket
-            control_port = port + CONTROL_PORT_OFFSET
-            print(f"Connecting control to {host}:{control_port}...")
-            self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.control_socket.settimeout(5)
-            self.control_socket.connect((host, control_port))
-            self.control_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            self.control_socket.settimeout(None)
-            connected_control = True
-            print("Control socket connected.")
-
-            # If both connected successfully
-            self.running = True
-            self.connected = True
-            self.status_label.config(text=f"Connected to {host}:{port} (Ctrl:{control_port}, Size:{self.stream_width}x{self.stream_height}, Format: {self.stream_format})")
-            self.connect_button.config(state="disabled")
-            self.disconnect_button.config(state="normal")
-            self.manual_connect_button.config(state="disabled")
-            self.service_listbox.config(state="disabled")
-            self.save_last_ip(host)
-            self.create_stream_window()
-            # --- Start background thread --- 
-            threading.Thread(target=self.receive_stream, daemon=True).start()
-            # --- Kick off the first UI update --- 
-            if self.update_id: # Cancel previous if any
-                 try: self.root.after_cancel(self.update_id)
-                 except: pass
-            # Start update frame directly
-            self.root.after(100, self.update_frame)
-            
-        except socket.timeout:
-            self.status_label.config(text=f"Error: Connection timed out ({host}:{port if not connected_stream else control_port})")
-            self.close_sockets()
-        except ConnectionRefusedError:
-            self.status_label.config(text=f"Error: Connection refused ({host}:{port if not connected_stream else control_port})")
-            self.close_sockets()
-        except ValueError:
-             self.status_label.config(text="Error: Invalid Port Number")
-             self.close_sockets()
-        except Exception as e:
-            self.status_label.config(text=f"Error connecting: {str(e)}")
-            self.close_sockets()
-            
-    def close_sockets(self):
-        """Safely close both stream and control sockets."""
-        print("Closing sockets...")
-        if self.stream_socket:
-            try:
-                self.stream_socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass # Ignore if already closed
-            finally:
-                 self.stream_socket.close()
-                 self.stream_socket = None
-        if self.control_socket:
-            try:
-                self.control_socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                 pass # Ignore if already closed
-            finally:
-                self.control_socket.close()
-                self.control_socket = None
-        self.connected = False
-        print("Sockets closed.")
-
     def on_closing(self):
         """Handle window closing"""
         print("Closing application initiated...")
@@ -964,6 +863,15 @@ class ScreenShareClient:
         # --- End Cancel --- 
         
         self.running = False 
+        
+        # Clean up temporary directory if using file-based approach
+        if hasattr(self, 'temp_dir') and USE_FILE_BASED_IMAGES:
+            try:
+                import shutil
+                shutil.rmtree(self.temp_dir)
+                print(f"Cleaned up temporary directory: {self.temp_dir}")
+            except Exception as e:
+                print(f"Error cleaning temporary directory: {e}")
         
         # Try to update status one last time before closing
         try:
