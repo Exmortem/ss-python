@@ -24,7 +24,7 @@ USE_FILE_BASED_IMAGES = False
 # -- Add alternative rendering mode flag --
 FORCE_ALTERNATIVE_RENDERING = True
 # -- Add direct update flag --
-USE_DIRECT_UPDATE = True
+USE_DIRECT_UPDATE = False
 
 class ScreenShareClient:
     def __init__(self):
@@ -322,6 +322,18 @@ class ScreenShareClient:
             print(f"[Debug] Setting stream window geometry: {geometry_string}")
             self.stream_window.geometry(geometry_string)
             
+            # Update the window before setting attributes
+            self.stream_window.update_idletasks()
+            
+            # Set various window attributes
+            self.stream_window.attributes('-topmost', True)
+            
+            # Always disable resize ability
+            self.stream_window.resizable(False, False)
+            
+            # Remove window decorations - needed for all versions
+            self.stream_window.overrideredirect(True)
+            
             # Add close button
             close_button_x = max(0, display_width - 30)
             close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
@@ -330,21 +342,6 @@ class ScreenShareClient:
             # Bind keys
             self.stream_window.bind("<KeyPress>", self.on_key_press)
             self.stream_window.bind("<KeyRelease>", self.on_key_release)
-            
-            # Update the window before setting attributes
-            self.stream_window.update_idletasks()
-            
-            # Set various window attributes for compatibility
-            if FORCE_ALTERNATIVE_RENDERING:
-                # Use simpler window settings
-                self.stream_window.resizable(False, False)
-                self.stream_window.attributes('-topmost', True)
-                # Don't use overrideredirect on problematic clients
-                # self.stream_window.overrideredirect(True)
-            else:
-                # Standard settings
-                self.stream_window.attributes('-topmost', True)
-                self.stream_window.overrideredirect(True)
             
             # Make sure window has focus
             self.stream_window.focus_set()
