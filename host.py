@@ -251,9 +251,41 @@ def get_local_ip():
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
         s.close()
+        print(f"Detected local IP: {local_ip}")
         return local_ip
     except:
+        print("Could not determine external IP address, falling back to 127.0.0.1")
         return "127.0.0.1"  # Fallback to localhost
+
+def get_all_local_ips():
+    """Get all local IP addresses of the machine"""
+    ips = []
+    try:
+        # Get all network interfaces
+        addrs = socket.getaddrinfo(socket.gethostname(), None)
+        for addr in addrs:
+            ip = addr[4][0]
+            # Only add IPv4 addresses and skip localhost
+            if '.' in ip and ip != '127.0.0.1':
+                ips.append(ip)
+        
+        # If no IPs found, try the primary method
+        if not ips:
+            primary_ip = get_local_ip()
+            if primary_ip != '127.0.0.1':
+                ips.append(primary_ip)
+                
+        # Remove duplicates
+        ips = list(set(ips))
+        print(f"All detected local IPs: {ips}")
+    except Exception as e:
+        print(f"Error getting local IPs: {e}")
+    
+    # If still no IPs, add loopback
+    if not ips:
+        ips.append('127.0.0.1')
+        
+    return ips
 
 class ScreenShareHost:
     def __init__(self, host='0.0.0.0'): # Remove default port from here
@@ -267,7 +299,12 @@ class ScreenShareHost:
         self.status_queue = queue.Queue()
         self.server_socket = None
         self.control_server_socket = None
+        
+        # Get both primary IP and all available IPs
         self.host_ip = get_local_ip()
+        self.all_ips = get_all_local_ips()
+        print(f"Primary IP: {self.host_ip}, All IPs: {self.all_ips}")
+        
         self.zeroconf = Zeroconf()
         self.service_info = None
         self.client_threads = []
@@ -723,14 +760,27 @@ class ScreenShareHost:
             self.zeroconf = Zeroconf() # Create new instance
             instance_name = socket.gethostname()
             unique_service_name = f"{instance_name}._screenshare._tcp.local."
+            
+            # Use a list of addresses for better network compatibility
+            addresses = []
+            for ip in self.all_ips:
+                try:
+                    addresses.append(socket.inet_aton(ip))
+                except:
+                    print(f"Error converting IP {ip} to network format")
+            
+            # Fall back to main IP if no addresses found
+            if not addresses:
+                addresses = [socket.inet_aton(self.host_ip)]
+                
             self.service_info = ServiceInfo(
                 type_="_screenshare._tcp.local.",
                 name=unique_service_name,
-                addresses=[socket.inet_aton(self.host_ip)],
+                addresses=addresses,  # Use all available IPs
                 port=self.port,
                 properties={'instance_name': instance_name} 
             )
-            print(f"Advertising service as: {unique_service_name} on port {self.port}")
+            print(f"Advertising service as: {unique_service_name} on port {self.port} with IPs: {self.all_ips}")
             self.zeroconf.register_service(self.service_info)
             print("Zeroconf service registered successfully.")
         except (Zeroconf.NonUniqueNameException, OSError) as reg_e: # Catch OSError too (e.g., network issues)
