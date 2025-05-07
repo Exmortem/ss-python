@@ -16,6 +16,9 @@ import struct # Added for unpacking size
 # Control Port offset
 CONTROL_PORT_OFFSET = 1
 
+# -- Add Parsec workaround flag --
+PARSEC_COMPATIBLE_MODE = True
+
 class ScreenShareClient:
     def __init__(self):
         # --- Create Root Window FIRST --- 
@@ -268,8 +271,15 @@ class ScreenShareClient:
         # If window doesn't exist or was destroyed, create it anew
         self.stream_window = tk.Toplevel()
         self.stream_window.title("Screen Share Stream")
-        self.stream_window.attributes('-topmost', True)  # Keep window on top
-        self.stream_window.overrideredirect(True)  # Remove window decorations
+        
+        # For Parsec compatibility, use normal window with decorations
+        if PARSEC_COMPATIBLE_MODE:
+            # Keep borderless but make it behave more like a normal window
+            self.stream_window.overrideredirect(False)
+        else:
+            # Original behavior
+            self.stream_window.attributes('-topmost', True)  
+            self.stream_window.overrideredirect(True)  # Remove window decorations
         
         # Ensure minimum dimensions for very small streams
         display_width = max(150, self.stream_width)
@@ -281,71 +291,43 @@ class ScreenShareClient:
         self.stream_window.geometry(geometry_string)  # Position at (0,0)
         # --- End Use ---
         
-        # Try both display methods
-        self.display_method = "label"  # Start with label method (better for remote desktop)
+        # Super simple display setup for Parsec compatibility
+        self.display_method = "simple_label"
         print(f"Using {self.display_method} display method")
         
-        # Create a frame to hold the display widget
+        # Create an ultra-simple frame for the display
         display_frame = tk.Frame(self.stream_window, bg='black')
         display_frame.pack(fill="both", expand=True)
         
-        if self.display_method == "canvas":
-            # Create canvas for stream, removing its border
-            self.canvas = tk.Canvas(
-                display_frame, 
-                width=self.stream_width,   # Use actual stream width
-                height=self.stream_height, # Use actual stream height
-                borderwidth=0,         
-                highlightthickness=0,  
-                bg='black'             
-            )
-            self.canvas.pack(fill="both", expand=True)
-            self.stream_label = None
-        else:
-            # Create label for stream (more compatible with some remote desktop software)
-            self.canvas = None
-            self.stream_label = tk.Label(
-                display_frame,
-                width=self.stream_width,
-                height=self.stream_height,
-                bg='black'
-            )
-            self.stream_label.pack(fill="both", expand=True)
+        # Just use a simple label for everything
+        self.stream_label = tk.Label(
+            display_frame,
+            bg='black'
+        )
+        self.stream_label.pack(fill="both", expand=True)
+        self.canvas = None  # Not using canvas in this mode
         
-        # Force a focus and update to ensure window is initialized properly
-        self.stream_window.focus_force()
+        # Make sure it's ready
         self.stream_window.update()
         
-        # Add close button (linked to stop, which calls on_closing)
-        # Adjust position based on width
-        close_button_x = max(0, display_width - 30) # Ensure positive X
-        close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
-        close_button.place(x=close_button_x, y=5)
+        # Only add close button if not in Parsec mode (regular window has its own close)
+        if not PARSEC_COMPATIBLE_MODE:
+            # Add close button (linked to stop, which calls on_closing)
+            close_button_x = max(0, display_width - 30) 
+            close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
+            close_button.place(x=close_button_x, y=5)
         
         # Bind keys and set focus
         self.stream_window.bind("<KeyPress>", self.on_key_press)
         self.stream_window.bind("<KeyRelease>", self.on_key_release)
         self.stream_window.focus_set()
-
+        
+        # Make sure it's visible
         self.stream_window.deiconify()
         
         # Print diagnostic info
         print(f"Stream window created with dimensions: {self.stream_width}x{self.stream_height}")
-        self.root.after(500, self._check_canvas_size)  # Check size after things settle
     
-    def _check_canvas_size(self):
-        """Debug method to check canvas sizing after window creation"""
-        if self.canvas and self.canvas.winfo_exists():
-            canvas_width = self.canvas.winfo_width()
-            canvas_height = self.canvas.winfo_height()
-            print(f"[Debug] Canvas size after 500ms: {canvas_width}x{canvas_height}")
-            
-            # If there's a mismatch, try forcing the correct size
-            if canvas_width != self.stream_width or canvas_height != self.stream_height:
-                print(f"[Debug] Fixing canvas size to match stream: {self.stream_width}x{self.stream_height}")
-                self.canvas.config(width=self.stream_width, height=self.stream_height)
-                self.stream_window.geometry(f"{self.stream_width}x{self.stream_height}+0+0")
-
     def on_key_press(self, event):
         """Callback for key press events on the stream window."""
         self.send_key_event('key_press', event)
@@ -518,7 +500,7 @@ class ScreenShareClient:
             self.close_sockets()
 
     def update_frame(self):
-        """Updates the canvas with the latest image from the queue. Called from main thread."""
+        """Updates the display with the latest image from the queue. Called from main thread."""
         # Force update stats at least every second even if frames aren't displaying
         current_time = time.time()
         if current_time - self.stats_last_update >= self.stats_update_interval:
@@ -526,6 +508,9 @@ class ScreenShareClient:
             self.update_statistics()
             
         if not self.connected or self.stream_window is None or not self.stream_window.winfo_exists():
+             print("Early exit: connected={}, window exists={}".format(
+                 self.connected, 
+                 self.stream_window is not None and self.stream_window.winfo_exists()))
              self.update_id = None # Ensure no rescheduling if exited
              return 
              
@@ -538,20 +523,24 @@ class ScreenShareClient:
             queue_size = self.image_queue.qsize()
             queue_fullness = queue_size / self.image_queue.maxsize
             
-            # Determine batch size based on queue status
-            if self.unlimited_frame_rate.get():
-                if queue_fullness > 0.8:
-                    # Queue is getting full, grab more frames
-                    batch_size = min(20, queue_size // 2)  # Process up to half the queue in one go
-                elif queue_fullness > 0.5:
-                    # Queue moderately full
-                    batch_size = 8
-                else:
-                    # Normal operation
-                    batch_size = 4
-            else:
-                # Limited FPS mode - just process 1 frame
+            # Always just process one frame in Parsec mode to reduce CPU load
+            if PARSEC_COMPATIBLE_MODE:
                 batch_size = 1
+            else:
+                # Determine batch size based on queue status
+                if self.unlimited_frame_rate.get():
+                    if queue_fullness > 0.8:
+                        # Queue is getting full, grab more frames
+                        batch_size = min(10, queue_size // 2)  # Reduced from 20 to 10
+                    elif queue_fullness > 0.5:
+                        # Queue moderately full
+                        batch_size = 5  # Reduced from 8 to 5
+                    else:
+                        # Normal operation
+                        batch_size = 2  # Reduced from 4 to 2
+                else:
+                    # Limited FPS mode - just process 1 frame
+                    batch_size = 1
                 
             # Get frames in batches (more efficient than one at a time)
             frames = []
@@ -570,6 +559,10 @@ class ScreenShareClient:
             # Use the most recent frame only
             if frames:
                 latest_img = frames[-1]
+            else:
+                # If no new frames, just schedule next update and return
+                self._schedule_next_frame(queue_fullness)
+                return
                 
             if latest_img:
                 try:
@@ -577,57 +570,43 @@ class ScreenShareClient:
                     if latest_img.mode not in ['RGB', 'RGBA']:
                         latest_img = latest_img.convert('RGB')
                     
-                    # Display based on selected method
-                    if self.display_method == "canvas" and self.canvas:
-                        # Canvas method
-                        try:
-                            # First attempt: ImageTk
-                            self.tk_image = ImageTk.PhotoImage(image=latest_img)
-                            
-                            # Display image on canvas
-                            if self.canvas_image_item is None:
-                                # First frame
-                                self.canvas_image_item = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
-                            else:
-                                # Update existing item
-                                self.canvas.itemconfig(self.canvas_image_item, image=self.tk_image)
-                                
-                            # Keep reference to prevent garbage collection
-                            self.canvas.tk_image = self.tk_image
-                            
-                        except Exception as img_err:
-                            print(f"Canvas display error: {img_err}")
-                            raise
-                            
-                    else:
-                        # Label method (more compatible with remote desktop)
+                    # PARSEC COMPATIBLE MODE: Much simpler approach
+                    if PARSEC_COMPATIBLE_MODE:
+                        # Deliberately resize to make it faster (if needed)
+                        if latest_img.width > 1600 or latest_img.height > 900:
+                            scale_factor = min(1600/latest_img.width, 900/latest_img.height)
+                            new_width = int(latest_img.width * scale_factor)
+                            new_height = int(latest_img.height * scale_factor)
+                            latest_img = latest_img.resize((new_width, new_height), Image.LANCZOS)
+                    
+                        # Create the image and display it
                         try:
                             self.tk_image = ImageTk.PhotoImage(image=latest_img)
-                            self.stream_label.config(image=self.tk_image)
-                            self.stream_label.image = self.tk_image  # Keep reference
-                        except Exception as label_err:
-                            print(f"Label display error: {label_err}, trying alternate method")
-                            # Last resort: resize and simplify the image
-                            try:
-                                # Resize to smaller dimensions if needed
-                                if latest_img.width > 800 or latest_img.height > 800:
-                                    scale_factor = min(800/latest_img.width, 800/latest_img.height)
-                                    new_width = int(latest_img.width * scale_factor)
-                                    new_height = int(latest_img.height * scale_factor)
-                                    latest_img = latest_img.resize((new_width, new_height), Image.LANCZOS)
-                                
-                                # Create new PhotoImage
-                                self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                            if self.stream_label:
                                 self.stream_label.config(image=self.tk_image)
                                 self.stream_label.image = self.tk_image
-                            except Exception as last_err:
-                                print(f"All display methods failed: {last_err}")
-                                raise
+                        except Exception as e:
+                            print(f"Simple display failed: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    else:
+                        # Original canvas-based display for non-Parsec environments
+                        if self.canvas:
+                            # Canvas method
+                            self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                            
+                            if self.canvas_image_item is None:
+                                self.canvas_image_item = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+                            else:
+                                self.canvas.itemconfig(self.canvas_image_item, image=self.tk_image)
+                                
+                            self.canvas.tk_image = self.tk_image
                     
-                    # Force the window to update
-                    self.stream_window.update_idletasks()
+                    # Force a UI update
+                    if PARSEC_COMPATIBLE_MODE:
+                        self.stream_window.update_idletasks()
                     
-                    # Track processing time (only once per batch)
+                    # Track processing time
                     process_end_time = time.time()
                     process_time = process_end_time - process_start_time
                     self.stats['processing_times'].append(process_time)
@@ -638,28 +617,34 @@ class ScreenShareClient:
                     print(f"[Error] Render failure: {render_e}")
                     import traceback
                     traceback.print_exc()
-                    self.canvas_image_item = None
             
         except Exception as e:
             print(f"[ERROR] Update frame error: {e}")
             import traceback
             traceback.print_exc()
             
-        # Schedule next update based on mode
-        if self.running:
+        # Schedule next update
+        self._schedule_next_frame(queue_fullness)
+        
+    def _schedule_next_frame(self, queue_fullness):
+        """Helper to schedule the next frame update."""
+        if not self.running:
+            self.update_id = None
+            return
+            
+        # Use much more conservative timing in Parsec mode
+        if PARSEC_COMPATIBLE_MODE:
+            # Always use fixed timing for stability
+            self.update_id = self.root.after(20, self.update_frame)  # ~50fps max
+        else:
+            # Original dynamic timing
             if self.unlimited_frame_rate.get():
-                # For unlimited mode, use minimal delay but avoid starving system
                 if queue_fullness > 0.5:
-                    # Queue filling up, go to max speed
                     self.update_id = self.root.after_idle(self.update_frame)
                 else:
-                    # Small delay to prevent CPU overload
                     self.update_id = self.root.after(1, self.update_frame)
             else:
-                # This should never happen with our changes
                 self.update_id = self.root.after(16, self.update_frame)
-        else:
-            self.update_id = None
 
     def receive_stream(self):
         frame_count = 0 # Simple frame counter for logging
