@@ -291,30 +291,15 @@ class ScreenShareClient:
         )
         self.canvas.pack(fill="both", expand=True)
         
-        # Add placeholder text if dimensions are very small - but only during debugging
-        # if self.stream_width < 100 or self.stream_height < 30:
-        #     self.stream_label = self.canvas.create_text(
-        #         self.stream_width // 2, 
-        #         self.stream_height // 2,
-        #         text=f"Stream: {self.stream_width}x{self.stream_height}",
-        #         fill="white",
-        #         font=("Arial", 8)
-        #     )
+        # Force a focus and update to ensure window is initialized properly
+        self.stream_window.focus_force()
+        self.stream_window.update()
         
         # Add close button (linked to stop, which calls on_closing)
         # Adjust position based on width
         close_button_x = max(0, display_width - 30) # Ensure positive X
         close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
         close_button.place(x=close_button_x, y=5)
-        
-        # Remove debugging dimension label
-        # dim_label = ttk.Label(
-        #     self.stream_window, 
-        #     text=f"{self.stream_width}x{self.stream_height}", 
-        #     background="black", 
-        #     foreground="white"
-        # )
-        # dim_label.place(x=5, y=5)
         
         # Bind keys and set focus
         self.stream_window.bind("<KeyPress>", self.on_key_press)
@@ -514,6 +499,12 @@ class ScreenShareClient:
 
     def update_frame(self):
         """Updates the canvas with the latest image from the queue. Called from main thread."""
+        # Force update stats at least every second even if frames aren't displaying
+        current_time = time.time()
+        if current_time - self.stats_last_update >= self.stats_update_interval:
+            # Force update stats even if we don't display a frame
+            self.update_statistics()
+            
         if not self.connected or self.stream_window is None or not self.stream_window.winfo_exists():
              self.update_id = None # Ensure no rescheduling if exited
              return 
@@ -552,6 +543,10 @@ class ScreenShareClient:
                 except queue.Empty:
                     break
                     
+            # Update stats regardless of whether we render or not
+            self.stats['frames_displayed'] += processed_count
+            self.stats['interval_frames_displayed'] += processed_count
+                    
             # Use the most recent frame only
             if frames:
                 latest_img = frames[-1]
@@ -563,7 +558,16 @@ class ScreenShareClient:
                         latest_img = latest_img.convert('RGB')
                     
                     # Create PhotoImage - this is the slow part
-                    self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                    try:
+                        # Try standard approach first
+                        self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                    except Exception as img_err:
+                        print(f"Standard PhotoImage creation failed: {img_err}, trying alternate method")
+                        # Try again using a different approach for Parsec/remote desktop compatibility
+                        # Convert to a format more compatible with remote desktop solutions
+                        img_data = latest_img.tobytes()
+                        self.tk_image = tk.PhotoImage(width=latest_img.width, height=latest_img.height)
+                        self.tk_image.put(img_data, to=(0, 0, latest_img.width-1, latest_img.height-1))
                     
                     # Minimize canvas operations
                     if self.canvas_image_item is None:
@@ -576,6 +580,9 @@ class ScreenShareClient:
                     # Keep the reference to prevent garbage collection
                     self.canvas.tk_image = self.tk_image
                     
+                    # Force canvas to update immediately
+                    self.canvas.update_idletasks()
+                    
                     # Only resize very occasionally
                     if processed_count % 300 == 0:
                         canvas_width = self.canvas.winfo_width()
@@ -585,10 +592,6 @@ class ScreenShareClient:
                         if canvas_width != img_width or canvas_height != img_height:
                             self.canvas.config(width=img_width, height=img_height)
                             self.stream_window.geometry(f"{img_width}x{img_height}+0+0")
-                    
-                    # Track frame stats - count all processed frames
-                    self.stats['frames_displayed'] += processed_count
-                    self.stats['interval_frames_displayed'] += processed_count
                     
                     # Track processing time (only once per batch)
                     process_end_time = time.time()
@@ -603,11 +606,6 @@ class ScreenShareClient:
                     traceback.print_exc()
                     self.canvas_image_item = None
             
-            # Update stats UI less frequently
-            current_time = time.time()
-            if current_time - self.stats_last_update >= self.stats_update_interval:
-                self.update_statistics()
-                
         except Exception as e:
             print(f"[ERROR] Update frame error: {e}")
             import traceback
