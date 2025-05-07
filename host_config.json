@@ -1,7 +1,0 @@
-{
-    "capture_width": 500,
-    "capture_height": 500,
-    "capture_fps": 60,
-    "fidelity": "JPEG",
-    "port": 8485
-}
