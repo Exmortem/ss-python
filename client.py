@@ -18,9 +18,9 @@ import tempfile  # For temporary file-based image handling
 CONTROL_PORT_OFFSET = 1
 
 # -- Add Parsec workaround flag --
-PARSEC_COMPATIBLE_MODE = True
+PARSEC_COMPATIBLE_MODE = False
 # -- Add file-based workaround --
-USE_FILE_BASED_IMAGES = True
+USE_FILE_BASED_IMAGES = False
 
 class ScreenShareClient:
     def __init__(self):
@@ -51,7 +51,7 @@ class ScreenShareClient:
         self.update_id = None # Keep this to store the ID of the next scheduled update
         self.tk_image = None # Keep reference to PhotoImage
         self.canvas_image_item = None # ID of the image item on canvas
-        self.display_method = "canvas"  # Can be "canvas" or "label"
+        self.display_method = "label"  # Always use label for simpler compatibility
         
         # --- Frame rate settings ---
         self.unlimited_frame_rate = tk.BooleanVar(value=True)
@@ -67,7 +67,7 @@ class ScreenShareClient:
             'fps_displayed': 0.0,           # Current displaying FPS
             'processing_times': [],         # List to calculate average processing time
             'max_processing_time': 0.0,
-            'queue_max_size': 30,           # Should match the queue size
+            'queue_max_size': 60,           # Should match the image_queue size
             # New interval tracking
             'interval_frames_received': 0,  # Frames received in current interval
             'interval_frames_displayed': 0, # Frames displayed in current interval
@@ -269,45 +269,77 @@ class ScreenShareClient:
         # If window already exists and is valid, just show it
         if self.stream_window and self.stream_window.winfo_exists():
             self.stream_window.deiconify() 
+            print("[Debug] Reusing existing stream window")
             return
             
         # Create a new window
-        self.stream_window = tk.Toplevel()
-        self.stream_window.title("Screen Share Stream")
-        self.stream_window.attributes('-topmost', True)
-        self.stream_window.overrideredirect(True)  # Remove window decorations
+        try:
+            print("[Debug] Creating new stream window")
+            self.stream_window = tk.Toplevel()
+            self.stream_window.title("Screen Share Stream")
+            
+            # Set up window dimensions
+            display_width = max(150, self.stream_width)
+            display_height = max(30, self.stream_height)
+            
+            print(f"[Debug] Stream dimensions from host: width={self.stream_width}, height={self.stream_height}")
+            print(f"[Debug] Using display dimensions: {display_width}x{display_height}")
+            
+            # Create a simple display frame
+            display_frame = tk.Frame(self.stream_window, bg='black')
+            display_frame.pack(fill="both", expand=True)
+            
+            # Use label for display (simpler and more compatible)
+            self.stream_label = tk.Label(display_frame, bg='black')
+            self.stream_label.pack(fill="both", expand=True)
+            
+            # Set geometry after creating content to avoid size issues
+            geometry_string = f"{display_width}x{display_height}+0+0"
+            print(f"[Debug] Setting stream window geometry: {geometry_string}")
+            self.stream_window.geometry(geometry_string)
+            
+            # Add close button
+            close_button_x = max(0, display_width - 30)
+            close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
+            close_button.place(x=close_button_x, y=5)
+            
+            # Bind keys
+            self.stream_window.bind("<KeyPress>", self.on_key_press)
+            self.stream_window.bind("<KeyRelease>", self.on_key_release)
+            
+            # Set window attributes after content is created but before displaying
+            self.stream_window.attributes('-topmost', True)
+            
+            # Remove window decorations last to prevent size issues
+            self.stream_window.overrideredirect(True)
+            
+            # Make sure window has focus
+            self.stream_window.focus_set()
+            
+            # Make window visible (ensure it's at the front)
+            self.stream_window.deiconify()
+            self.stream_window.lift()
+            
+            # Update the window to ensure it's fully drawn
+            self.stream_window.update()
+            
+            # Verify the window is displayed with the correct size
+            actual_width = self.stream_window.winfo_width()
+            actual_height = self.stream_window.winfo_height()
+            print(f"[Debug] Stream window created with dimensions: {actual_width}x{actual_height}")
+            
+            # Force another geometry update if needed
+            if actual_width <= 1 or actual_height <= 1:
+                print("[Debug] Window dimensions are invalid, forcing update")
+                self.stream_window.geometry(geometry_string)
+                self.stream_window.update_idletasks()
+                print(f"[Debug] Updated dimensions: {self.stream_window.winfo_width()}x{self.stream_window.winfo_height()}")
         
-        # Set up window dimensions
-        display_width = max(150, self.stream_width)
-        display_height = max(30, self.stream_height)
+        except Exception as e:
+            print(f"[Debug] Error creating stream window: {e}")
+            import traceback
+            traceback.print_exc()
         
-        geometry_string = f"{display_width}x{display_height}+0+0"
-        print(f"Setting stream window geometry: {geometry_string}")
-        self.stream_window.geometry(geometry_string)
-        
-        # Create a simple display frame
-        display_frame = tk.Frame(self.stream_window, bg='black')
-        display_frame.pack(fill="both", expand=True)
-        
-        # Use label for display (simpler and more compatible)
-        self.stream_label = tk.Label(display_frame, bg='black')
-        self.stream_label.pack(fill="both", expand=True)
-        
-        # Add close button
-        close_button_x = max(0, display_width - 30)
-        close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
-        close_button.place(x=close_button_x, y=5)
-        
-        # Bind keys
-        self.stream_window.bind("<KeyPress>", self.on_key_press)
-        self.stream_window.bind("<KeyRelease>", self.on_key_release)
-        self.stream_window.focus_set()
-        
-        # Make window visible
-        self.stream_window.deiconify()
-        
-        print(f"Stream window created with dimensions: {display_width}x{display_height}")
-    
     def on_key_press(self, event):
         """Callback for key press events on the stream window."""
         self.send_key_event('key_press', event)
@@ -603,6 +635,8 @@ class ScreenShareClient:
             
         if not self.connected or self.stream_window is None or not self.stream_window.winfo_exists():
             self.update_id = None
+            if self.connected:  # Only log if connected but window is missing
+                print("[Debug] Early exit from update_frame: stream_window missing")
             return
             
         try:
@@ -621,26 +655,65 @@ class ScreenShareClient:
                 try:
                     latest_img = self.image_queue.get_nowait()
                     processed_count = 1
+                    # Debug check image but only if there's an issue
+                    if latest_img is None:
+                        print("[Debug] Got None image from queue!")
                 except queue.Empty:
+                    # This shouldn't happen as we checked empty() but is not critical
                     pass
-                    
+            else:
+                # Occasional queue empty log (every 50 times)
+                if self._update_frame_count % 50 == 0:
+                    print("[Debug] Queue is empty, no frames to display")
+                self._update_frame_count += 1
+                
             # Update stats
             self.stats['frames_displayed'] += processed_count
             self.stats['interval_frames_displayed'] += processed_count
-                    
+                
             # Display the frame
             if latest_img:
                 try:
+                    # Verify stream window and label exist
+                    if not (self.stream_window and self.stream_window.winfo_exists()):
+                        print("[Debug] Stream window doesn't exist when trying to update frame")
+                        if self.running:
+                            print("[Debug] Attempting to recreate stream window")
+                            self.create_stream_window()
+                        else:
+                            return
+                    
+                    # Verify stream label exists
+                    if not hasattr(self, 'stream_label') or not self.stream_label.winfo_exists():
+                        print("[Debug] Stream label doesn't exist, recreating")
+                        display_frame = tk.Frame(self.stream_window, bg='black')
+                        display_frame.pack(fill="both", expand=True)
+                        self.stream_label = tk.Label(display_frame, bg='black')
+                        self.stream_label.pack(fill="both", expand=True)
+                    
                     # Convert if needed
                     if latest_img.mode not in ['RGB', 'RGBA']:
                         latest_img = latest_img.convert('RGB')
                     
                     # Create Tkinter-compatible image
-                    self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                    try:
+                        self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                    except Exception as img_e:
+                        print(f"[Debug] Error creating PhotoImage: {img_e}")
+                        return
                     
                     # Display in label
-                    self.stream_label.config(image=self.tk_image)
-                    self.stream_label.image = self.tk_image  # Keep reference
+                    try:
+                        if self.stream_label and self.stream_label.winfo_exists():
+                            self.stream_label.config(image=self.tk_image)
+                            # Keep reference to prevent garbage collection
+                            self.stream_label.image = self.tk_image
+                        else:
+                            print("[Debug] stream_label doesn't exist or is invalid")
+                    except tk.TclError as tcl_e:
+                        print(f"[Debug] Tkinter error updating label: {tcl_e}")
+                    except Exception as label_e:
+                        print(f"[Debug] Error updating label: {label_e}")
                     
                     # Performance timing
                     process_end_time = time.time()
@@ -650,14 +723,28 @@ class ScreenShareClient:
                         self.stats['max_processing_time'] = process_time
                     
                 except Exception as e:
-                    print(f"[Error] Display error: {e}")
-                    
+                    print(f"[Debug] Display error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
         except Exception as e:
-            print(f"[ERROR] Update frame error: {e}")
-            
+            print(f"[Debug] Update frame error: {e}")
+            import traceback
+            traceback.print_exc()
+        
         # Schedule next update - always use a small fixed delay for stability
         if self.running:
-            self.update_id = self.root.after(10, self.update_frame)
+            try:
+                # Cancel any existing scheduled update to prevent duplicates
+                if self.update_id:
+                    try:
+                        self.root.after_cancel(self.update_id)
+                    except:
+                        pass
+                # Schedule the next update
+                self.update_id = self.root.after(10, self.update_frame)
+            except Exception as sched_e:
+                print(f"[Debug] Error scheduling next frame: {sched_e}")
         else:
             self.update_id = None
     
@@ -675,6 +762,7 @@ class ScreenShareClient:
                         break
                     size = int.from_bytes(size_data, byteorder='big')
                     if size <= 0:
+                        print(f"[Stream] Warning: Received invalid frame size: {size}")
                         continue
                     
                     # Receive frame data in chunks efficiently
@@ -684,20 +772,52 @@ class ScreenShareClient:
                         packet = self.stream_socket.recv(min(4096, bytes_remaining))
                         if not packet:
                             self.running = False
+                            print("[Stream] Connection closed while receiving frame data")
                             break 
                         data += packet
                     if not self.running: break
                     if len(data) != size:
+                        print(f"[Stream] Warning: Incomplete frame data received. Expected {size}, got {len(data)}")
                         continue
 
                     # Decode frame
-                    frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
-                    if frame is None:
+                    try:
+                        frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                        if frame is None:
+                            print("[Stream] Warning: Failed to decode frame data")
+                            continue
+                        
+                        # Print frame info occasionally
+                        if frame_count % (log_interval * 5) == 0:
+                            print(f"[Stream] Frame details: shape={frame.shape}, dtype={frame.dtype}")
+                        
+                        # Convert to PIL Image with error handling
+                        try:
+                            # Make sure frame is valid BGR format for conversion
+                            if len(frame.shape) != 3 or frame.shape[2] != 3:
+                                print(f"[Stream] Warning: Unexpected frame format: {frame.shape}")
+                                continue
+                                
+                            # Convert BGR to RGB (PIL uses RGB)
+                            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            
+                            # Create PIL Image
+                            image = Image.fromarray(image)
+                            
+                            # Verify the image was created correctly
+                            if not image or not hasattr(image, 'mode') or not hasattr(image, 'size'):
+                                print("[Stream] Warning: Invalid PIL image created")
+                                continue
+                                
+                            # PIL image info on first frame for debugging
+                            if frame_count == 0:
+                                print(f"[Stream] First image details: mode={image.mode}, size={image.size}")
+                        except Exception as img_e:
+                            print(f"[Stream] Error converting frame to PIL Image: {img_e}")
+                            continue
+                    except Exception as dec_e:
+                        print(f"[Stream] Error decoding frame: {dec_e}")
                         continue
-                    
-                    # Convert to PIL Image
-                    image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    image = Image.fromarray(image)
                     
                     # Track received frame
                     self.stats['frames_received'] += 1
@@ -754,7 +874,8 @@ class ScreenShareClient:
                             self.image_queue.put_nowait(image)
                             self.stats['frames_dropped'] += 1
                             frame_count += 1
-                        except:
+                        except Exception as q_e:
+                            print(f"[Stream] Error managing full queue: {q_e}")
                             self.stats['frames_dropped'] += 1
                     
                     # Occasional logging
@@ -776,11 +897,15 @@ class ScreenShareClient:
                 except Exception as e:
                     if self.running: 
                         print(f"[Stream] Error: {e}")
+                        import traceback
+                        traceback.print_exc()
                     break
                     
         except Exception as e:
             if self.running: 
                 print(f"[Stream] Fatal error: {e}")
+                import traceback
+                traceback.print_exc()
             try:
                 if self.root and self.root.winfo_exists():
                     self.root.after(0, lambda msg=f"Fatal error: {e}": 
@@ -974,7 +1099,7 @@ class ScreenShareClient:
             'fps_displayed': 0.0,           # Current displaying FPS
             'processing_times': [],         # List to calculate average processing time
             'max_processing_time': 0.0,
-            'queue_max_size': 30,           # Should match the queue size
+            'queue_max_size': 60,           # Should match the image_queue size
             # New interval tracking
             'interval_frames_received': 0,  # Frames received in current interval
             'interval_frames_displayed': 0, # Frames displayed in current interval
