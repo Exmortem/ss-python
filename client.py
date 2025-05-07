@@ -21,6 +21,10 @@ CONTROL_PORT_OFFSET = 1
 PARSEC_COMPATIBLE_MODE = False
 # -- Add file-based workaround --
 USE_FILE_BASED_IMAGES = False
+# -- Add alternative rendering mode flag --
+FORCE_ALTERNATIVE_RENDERING = True
+# -- Add direct update flag --
+USE_DIRECT_UPDATE = True
 
 class ScreenShareClient:
     def __init__(self):
@@ -52,6 +56,12 @@ class ScreenShareClient:
         self.tk_image = None # Keep reference to PhotoImage
         self.canvas_image_item = None # ID of the image item on canvas
         self.display_method = "label"  # Always use label for simpler compatibility
+        
+        # --- Create temp directory for file-based display if needed ---
+        if USE_FILE_BASED_IMAGES:
+            self.temp_dir = tempfile.mkdtemp()
+            self.temp_img_path = os.path.join(self.temp_dir, "stream_frame.png")
+            print(f"Created temporary directory for images: {self.temp_dir}")
         
         # --- Frame rate settings ---
         self.unlimited_frame_rate = tk.BooleanVar(value=True)
@@ -278,20 +288,34 @@ class ScreenShareClient:
             self.stream_window = tk.Toplevel()
             self.stream_window.title("Screen Share Stream")
             
-            # Set up window dimensions
+            # Set up window dimensions - always ensure minimum size
             display_width = max(150, self.stream_width)
             display_height = max(30, self.stream_height)
             
             print(f"[Debug] Stream dimensions from host: width={self.stream_width}, height={self.stream_height}")
             print(f"[Debug] Using display dimensions: {display_width}x{display_height}")
             
-            # Create a simple display frame
-            display_frame = tk.Frame(self.stream_window, bg='black')
+            # Create display frame in specific order for better compatibility
+            display_frame = tk.Frame(self.stream_window, bg='black', width=display_width, height=display_height)
             display_frame.pack(fill="both", expand=True)
             
-            # Use label for display (simpler and more compatible)
-            self.stream_label = tk.Label(display_frame, bg='black')
+            # Force the frame to keep dimensions
+            display_frame.pack_propagate(False)
+            
+            # Use label for display with explicit dimensions
+            self.stream_label = tk.Label(display_frame, bg='black', width=display_width, height=display_height)
             self.stream_label.pack(fill="both", expand=True)
+            
+            # Set initial image to black background
+            try:
+                # Create a black image for initial display
+                black_img = Image.new('RGB', (display_width, display_height), color='black')
+                self.tk_image = ImageTk.PhotoImage(image=black_img)
+                self.stream_label.config(image=self.tk_image)
+                self.stream_label.image = self.tk_image
+                print("[Debug] Set initial black image for the stream window")
+            except Exception as img_e:
+                print(f"[Debug] Error creating initial black image: {img_e}")
             
             # Set geometry after creating content to avoid size issues
             geometry_string = f"{display_width}x{display_height}+0+0"
@@ -307,11 +331,20 @@ class ScreenShareClient:
             self.stream_window.bind("<KeyPress>", self.on_key_press)
             self.stream_window.bind("<KeyRelease>", self.on_key_release)
             
-            # Set window attributes after content is created but before displaying
-            self.stream_window.attributes('-topmost', True)
+            # Update the window before setting attributes
+            self.stream_window.update_idletasks()
             
-            # Remove window decorations last to prevent size issues
-            self.stream_window.overrideredirect(True)
+            # Set various window attributes for compatibility
+            if FORCE_ALTERNATIVE_RENDERING:
+                # Use simpler window settings
+                self.stream_window.resizable(False, False)
+                self.stream_window.attributes('-topmost', True)
+                # Don't use overrideredirect on problematic clients
+                # self.stream_window.overrideredirect(True)
+            else:
+                # Standard settings
+                self.stream_window.attributes('-topmost', True)
+                self.stream_window.overrideredirect(True)
             
             # Make sure window has focus
             self.stream_window.focus_set()
@@ -646,6 +679,11 @@ class ScreenShareClient:
             # Get queue status
             queue_size = self.image_queue.qsize()
             
+            # Log queue size periodically for debugging
+            if self._update_frame_count % 30 == 0:
+                print(f"[Debug] Queue status: {queue_size}/60 ({queue_size/60:.0%})")
+            self._update_frame_count += 1
+            
             # Get the most recent frame
             latest_img = None
             processed_count = 0
@@ -661,11 +699,6 @@ class ScreenShareClient:
                 except queue.Empty:
                     # This shouldn't happen as we checked empty() but is not critical
                     pass
-            else:
-                # Occasional queue empty log (every 50 times)
-                if self._update_frame_count % 50 == 0:
-                    print("[Debug] Queue is empty, no frames to display")
-                self._update_frame_count += 1
                 
             # Update stats
             self.stats['frames_displayed'] += processed_count
@@ -695,25 +728,50 @@ class ScreenShareClient:
                     if latest_img.mode not in ['RGB', 'RGBA']:
                         latest_img = latest_img.convert('RGB')
                     
-                    # Create Tkinter-compatible image
-                    try:
-                        self.tk_image = ImageTk.PhotoImage(image=latest_img)
-                    except Exception as img_e:
-                        print(f"[Debug] Error creating PhotoImage: {img_e}")
-                        return
-                    
-                    # Display in label
-                    try:
-                        if self.stream_label and self.stream_label.winfo_exists():
+                    # --- ALTERNATIVE RENDERING METHOD for computers with display issues ---
+                    if FORCE_ALTERNATIVE_RENDERING:
+                        if USE_FILE_BASED_IMAGES:
+                            # Method 1: File-based approach
+                            try:
+                                # Save the image to a temporary file
+                                latest_img.save(self.temp_img_path)
+                                # Load it back using a fresh PhotoImage
+                                self.tk_image = tk.PhotoImage(file=self.temp_img_path)
+                                self.stream_label.config(image=self.tk_image)
+                                self.stream_label.image = self.tk_image  # Keep reference
+                                # Periodically log success
+                                if self._update_frame_count % 60 == 0:
+                                    print(f"[Debug] File-based display update at frame {self._update_frame_count}")
+                            except Exception as file_e:
+                                print(f"[Debug] File-based display error: {file_e}")
+                        else:
+                            # Method 2: Direct bitmap update
+                            try:
+                                # First try the standard method
+                                self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                                # Force an update cycle before setting the image
+                                if USE_DIRECT_UPDATE and self._update_frame_count % 3 == 0:
+                                    self.stream_window.update_idletasks()
+                                self.stream_label.config(image=self.tk_image)
+                                # Keep reference to prevent garbage collection
+                                self.stream_label.image = self.tk_image
+                                # Explicitly force update (try to avoid black screen)
+                                if USE_DIRECT_UPDATE:
+                                    self.stream_label.update()
+                                # Periodically log success
+                                if self._update_frame_count % 60 == 0:
+                                    print(f"[Debug] Direct display update at frame {self._update_frame_count}")
+                            except Exception as direct_e:
+                                print(f"[Debug] Direct display error: {direct_e}")
+                    else:
+                        # Regular approach
+                        try:
+                            self.tk_image = ImageTk.PhotoImage(image=latest_img)
                             self.stream_label.config(image=self.tk_image)
                             # Keep reference to prevent garbage collection
                             self.stream_label.image = self.tk_image
-                        else:
-                            print("[Debug] stream_label doesn't exist or is invalid")
-                    except tk.TclError as tcl_e:
-                        print(f"[Debug] Tkinter error updating label: {tcl_e}")
-                    except Exception as label_e:
-                        print(f"[Debug] Error updating label: {label_e}")
+                        except Exception as img_e:
+                            print(f"[Debug] Error creating/displaying PhotoImage: {img_e}")
                     
                     # Performance timing
                     process_end_time = time.time()
@@ -990,6 +1048,17 @@ class ScreenShareClient:
         
         self.running = False 
         
+        # Clear any pending frames in the queue to release memory
+        try:
+            while not self.image_queue.empty():
+                try:
+                    self.image_queue.get_nowait()
+                except:
+                    break
+            print("Cleared image queue")
+        except:
+            pass
+        
         # Clean up temporary directory if using file-based approach
         if hasattr(self, 'temp_dir') and USE_FILE_BASED_IMAGES:
             try:
@@ -1018,6 +1087,10 @@ class ScreenShareClient:
         print("Destroying windows...")
         try:
             if self.stream_window and self.stream_window.winfo_exists():
+                # Release image references before destroying window
+                if hasattr(self, 'stream_label') and self.stream_label and self.stream_label.winfo_exists():
+                    self.stream_label.image = None
+                self.tk_image = None
                 self.stream_window.destroy()
         except tk.TclError:
             pass # Ignore error if already destroyed
@@ -1038,9 +1111,15 @@ class ScreenShareClient:
         except Exception as e:
             print(f"Error closing Zeroconf: {e}")
             pass
-        # Don't cancel browser here, Zeroconf.close() handles it
-        # if hasattr(self, 'browser'):
-        #    self.browser.cancel()
+        
+        # Release any image references to prevent memory leaks
+        self.tk_image = None
+        if hasattr(self, 'stream_label') and self.stream_label:
+            try:
+                self.stream_label.image = None
+            except:
+                pass
+        
         print("Cleanup finished.")
         
     def start(self):
