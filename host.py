@@ -1045,7 +1045,7 @@ class ScreenShareHost:
             thread_sct = mss.mss()
             frame_count = 0 # Frame counter for logging
             log_interval = 120 # Log every 120 frames (e.g., every 2 seconds at 60fps)
-            
+            print(f"[Host {addr}] Entering frame-sending loop.")
             while self.running:
                 try:
                     frame_start_time = time.perf_counter()
@@ -1055,7 +1055,7 @@ class ScreenShareHost:
                     
                     ok, buffer = cv2.imencode(encode_format, frame, encode_params)
                     if not ok:
-                        # print(f"[ERROR {addr}] Frame encoding failed (Format: {encode_format}). Skipping frame.")
+                        print(f"[Host {addr}] Frame encoding failed. Skipping frame.")
                         continue 
                     
                     size = len(buffer)
@@ -1064,6 +1064,7 @@ class ScreenShareHost:
                     # Send frame size and data
                     client_socket.sendall(size_data)
                     client_socket.sendall(buffer.tobytes())
+                    print(f"[Host {addr}] Sent frame {frame_count+1} ({size} bytes)")
                     
                     # Control frame rate
                     frame_end_time = time.perf_counter()
@@ -1080,9 +1081,12 @@ class ScreenShareHost:
                         time.sleep(sleep_time)
                         
                 except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError) as e:
-                    print(f"Client {addr} disconnected: {str(e)}")
+                    print(f"[Host {addr}] Disconnected during frame send: {str(e)}")
                     break
-                    
+                except Exception as e:
+                    print(f"[Host {addr}] Exception in frame loop: {e}")
+                    break
+            print(f"[Host {addr}] Exiting frame-sending loop. Processed {frame_count} frames.")
         except Exception as e:
             if self.running:  # Only print error if we're still running
                 print(f"Error handling client {addr}: {str(e)}")
