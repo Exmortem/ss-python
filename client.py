@@ -1159,13 +1159,9 @@ class ScreenShareClient:
             while not self.reconnect_event.is_set():
                 if self.last_host and self.last_port and not self.connected:
                     print(f"[Reconnect] Attempting to reconnect to {self.last_host}:{self.last_port}...")
-                    try:
-                        self.manual_connect_to_host(self.last_host, self.last_port)
-                        if self.connected:
-                            print("[Reconnect] Reconnected successfully!")
-                            break
-                    except Exception as e:
-                        print(f"[Reconnect] Failed: {e}")
+                    # Use manual_connect via UI thread for full state/UI reset
+                    self.root.after(0, self.manual_connect)
+                    break  # Only try once per loop, let manual_connect handle further attempts
                 else:
                     print(f"[Reconnect] Skipping attempt: last_host={self.last_host}, last_port={self.last_port}, connected={self.connected}")
                 self.reconnect_event.wait(3)
@@ -1177,88 +1173,6 @@ class ScreenShareClient:
         self.reconnect_event.set()
         if self.reconnect_thread:
             self.reconnect_thread = None
-
-    def manual_connect_to_host(self, host, port):
-        # This is a stripped-down version of manual_connect for reconnect attempts
-        # --- Robust cleanup before reconnect ---
-        self.running = False
-        self.connected = False
-        self.close_sockets()
-        if hasattr(self, 'stream_thread') and self.stream_thread is not None:
-            try:
-                if self.stream_thread.is_alive():
-                    print("Waiting for previous stream thread to exit (reconnect)...")
-                    self.stream_thread.join(timeout=2)
-            except Exception as e:
-                print(f"Error joining stream thread (reconnect): {e}")
-            self.stream_thread = None
-        if hasattr(self, 'image_queue') and self.image_queue:
-            try:
-                while not self.image_queue.empty():
-                    self.image_queue.get_nowait()
-                print("Cleared image queue before reconnect (manual_connect_to_host).")
-            except Exception as e:
-                print(f"Error clearing image queue (manual_connect_to_host): {e}")
-        self.image_queue = queue.Queue(maxsize=5)
-        # --- End robust cleanup ---
-        try:
-            print(f"[Reconnect] Connecting stream to {host}:{port}...")
-            self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.stream_socket.settimeout(5)
-            self.stream_socket.connect((host, port))
-            self.stream_socket.settimeout(None)
-            print("[Reconnect] Stream socket connected.")
-            # --- Receive Dimensions ---
-            self.stream_socket.settimeout(5.0)
-            size_data = self.stream_socket.recv(4)
-            if not size_data or len(size_data) < 4: raise ValueError("No dim size")
-            msg_len = struct.unpack('>I', size_data)[0]
-            if msg_len > 4096: raise ValueError(f"Dim size too large: {msg_len}")
-            dims_json_bytes = self.stream_socket.recv(msg_len)
-            if not dims_json_bytes or len(dims_json_bytes) < msg_len: raise ValueError("No dim json")
-            dims_json = dims_json_bytes.decode('utf-8')
-            dims = json.loads(dims_json)
-            new_width = dims.get('width')
-            new_height = dims.get('height')
-            if not isinstance(new_width, int) or not isinstance(new_height, int) or new_width <= 0 or new_height <= 0:
-                raise ValueError(f"Invalid dims: w={new_width}, h={new_height}")
-            self.stream_width = new_width
-            self.stream_height = new_height
-            self.stream_format = dims.get('format', 'jpeg')
-            self.stream_socket.settimeout(None)
-            # Connect control socket
-            control_port = port + CONTROL_PORT_OFFSET
-            print(f"[Reconnect] Connecting control to {host}:{control_port}...")
-            self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.control_socket.settimeout(5)
-            self.control_socket.connect((host, control_port))
-            self.control_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            self.control_socket.settimeout(None)
-            print("[Reconnect] Control socket connected.")
-            self.running = True
-            self.connected = True
-            # UI updates must be done in the main thread
-            self.root.after(0, lambda: self.status_label.config(text=f"Reconnected to {host}:{port} (Ctrl:{control_port}, Size:{self.stream_width}x{self.stream_height}, Format: {self.stream_format})"))
-            self.root.after(0, lambda: self.connect_button.config(state="disabled"))
-            self.root.after(0, lambda: self.disconnect_button.config(state="normal"))
-            self.root.after(0, lambda: self.manual_connect_button.config(state="disabled"))
-            self.root.after(0, lambda: self.service_listbox.config(state="disabled"))
-            self.save_last_ip(host)
-            self.root.after(0, self.create_stream_window)
-            # Start and track the new stream thread
-            self.stream_thread = threading.Thread(target=self.receive_stream, daemon=True)
-            self.stream_thread.start()
-            if self.update_id:
-                try:
-                    self.root.after(0, lambda: self.root.after_cancel(self.update_id))
-                except: pass
-            self.root.after(0, lambda: setattr(self, 'update_id', self.root.after(100, self.update_frame)))
-            self.stop_reconnect_loop()
-        except Exception as e:
-            print(f"[Reconnect] Error connecting: {e}")
-            self.connected = False
-            self.running = False
-            self.close_sockets()
 
 if __name__ == "__main__":
     client = None # Initialize client to None
