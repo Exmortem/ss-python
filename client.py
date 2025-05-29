@@ -28,39 +28,15 @@ FORCE_ALTERNATIVE_RENDERING = True
 USE_DIRECT_UPDATE = False
 
 class PyQtStreamWindow:
-    # Mapping from PyQt key codes to Tkinter-style keysyms (matches host SPECIAL_KEYS)
+    # Corrected mapping from Qt key codes to Tkinter-style keysyms (for modifiers and standard keys)
     QT_TO_TK_KEYSYM = {
-        0x01000000: 'Escape',
-        0x01000001: 'Tab',
-        0x01000002: 'Backtab',
-        0x01000003: 'BackSpace',
-        0x01000004: 'Return',
-        0x01000005: 'Enter',
-        0x01000006: 'Insert',
-        0x01000007: 'Delete',
-        0x01000008: 'Pause',
-        0x01000009: 'Print',
-        0x0100000a: 'SysReq',
-        0x0100000b: 'Clear',
-        0x01000010: 'Home',
-        0x01000011: 'End',
-        0x01000012: 'Left',
-        0x01000013: 'Up',
-        0x01000014: 'Right',
-        0x01000015: 'Down',
-        0x01000016: 'Page_Up',
-        0x01000017: 'Page_Down',
-        0x01000020: 'Shift_L',
-        0x01000021: 'Shift_R',
-        0x01000022: 'Control_L',
-        0x01000023: 'Control_R',
-        0x01000024: 'Meta_L',
-        0x01000025: 'Meta_R',
-        0x01000026: 'Alt_L',
-        0x01000027: 'Alt_R',
-        0x01000028: 'Caps_Lock',
-        0x01000029: 'Num_Lock',
-        0x0100002a: 'Scroll_Lock',
+        0x01000020: 'Shift_L',    # Qt.Key_Shift
+        0x01000021: 'Control_L',  # Qt.Key_Control
+        0x01000022: 'Alt_L',      # Qt.Key_Alt
+        0x01000023: 'Meta_L',     # Qt.Key_Meta (Windows/Command)
+        0x01000024: 'Caps_Lock',
+        0x01000025: 'Num_Lock',
+        0x01000026: 'Scroll_Lock',
         0x01000030: 'F1',
         0x01000031: 'F2',
         0x01000032: 'F3',
@@ -73,79 +49,27 @@ class PyQtStreamWindow:
         0x01000039: 'F10',
         0x0100003a: 'F11',
         0x0100003b: 'F12',
-        0x0100003c: 'F13',
-        0x0100003d: 'F14',
-        0x0100003e: 'F15',
-        0x0100003f: 'F16',
-        0x01000040: 'F17',
-        0x01000041: 'F18',
-        0x01000042: 'F19',
-        0x01000043: 'F20',
-        0x01000044: 'F21',
-        0x01000045: 'F22',
-        0x01000046: 'F23',
-        0x01000047: 'F24',
-        0x01000048: 'Menu',
-        0x0100004a: 'Help',
-        0x0100004b: 'Print',
-        0x0100004c: 'Execute',
-        0x0100004d: 'Select',
-        0x0100004e: 'Stop',
-        0x0100004f: 'Again',
-        0x01000050: 'Undo',
-        0x01000051: 'Cut',
-        0x01000052: 'Copy',
-        0x01000053: 'Paste',
-        0x01000054: 'Find',
-        0x01000055: 'Volume_Mute',
-        0x01000056: 'Volume_Down',
-        0x01000057: 'Volume_Up',
-        0x01000058: 'Media_Next',
-        0x01000059: 'Media_Prev',
-        0x0100005a: 'Media_Stop',
-        0x0100005b: 'Media_Play_Pause',
-        0x01000060: 'Super_L',
-        0x01000061: 'Super_R',
-        0x01000062: 'Hyper_L',
-        0x01000063: 'Hyper_R',
-        0x01000064: 'Delete',
-        0x01000065: 'Insert',
-        0x01000066: 'Home',
-        0x01000067: 'End',
-        0x01000068: 'Page_Up',
-        0x01000069: 'Page_Down',
-        0x0100006a: 'Left',
-        0x0100006b: 'Up',
-        0x0100006c: 'Right',
-        0x0100006d: 'Down',
-        0x01000070: 'KP_Enter',
-        0x01000071: 'KP_Home',
-        0x01000072: 'KP_Left',
-        0x01000073: 'KP_Up',
-        0x01000074: 'KP_Right',
-        0x01000075: 'KP_Down',
-        0x01000076: 'KP_Page_Up',
-        0x01000077: 'KP_Page_Down',
-        0x01000078: 'KP_End',
-        0x01000079: 'KP_Begin',
-        0x0100007a: 'KP_Insert',
-        0x0100007b: 'KP_Delete',
-        0x0100007c: 'KP_Multiply',
-        0x0100007d: 'KP_Add',
-        0x0100007e: 'KP_Separator',
-        0x0100007f: 'KP_Subtract',
-        0x01000080: 'KP_Decimal',
-        0x01000081: 'KP_Divide',
+        0x01000010: 'Home',
+        0x01000011: 'End',
+        0x01000012: 'Left',
+        0x01000013: 'Up',
+        0x01000014: 'Right',
+        0x01000015: 'Down',
+        0x01000016: 'Page_Up',
+        0x01000017: 'Page_Down',
+        0x01000000: 'Escape',
+        0x01000001: 'Tab',
+        0x01000003: 'BackSpace',
+        0x01000004: 'Return',
+        0x01000007: 'Delete',
         0x20: 'space',
+        # Add more as needed...
     }
-
     MODIFIER_KEYS = {
-        'Control_L': 0x01000022,
-        'Control_R': 0x01000023,
+        'Control_L': 0x01000021,
         'Shift_L': 0x01000020,
-        'Shift_R': 0x01000021,
-        'Alt_L': 0x01000026,
-        'Alt_R': 0x01000027,
+        'Alt_L': 0x01000022,
+        'Meta_L': 0x01000023,
     }
 
     def __init__(self, width, height, on_key_event, on_close, image_queue=None, client=None):
@@ -234,10 +158,11 @@ class PyQtStreamWindow:
         text = event.text()
         # If this is a modifier key, send only that modifier
         for mod_name, mod_code in self.MODIFIER_KEYS.items():
-            if key == mod_code and not self.modifier_state[mod_name]:
-                self.modifier_state[mod_name] = True
-                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
-                self.on_key_event('key_press', e_mod)
+            if key == mod_code:
+                if not self.modifier_state[mod_name]:
+                    self.modifier_state[mod_name] = True
+                    e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
+                    self.on_key_event('key_press', e_mod)
                 return  # Only send the modifier event
         # Otherwise, send the main key
         if text and len(text) == 1 and 32 <= ord(text) <= 126:
@@ -254,10 +179,11 @@ class PyQtStreamWindow:
         text = event.text()
         # If this is a modifier key, send only that modifier
         for mod_name, mod_code in self.MODIFIER_KEYS.items():
-            if key == mod_code and self.modifier_state[mod_name]:
-                self.modifier_state[mod_name] = False
-                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
-                self.on_key_event('key_release', e_mod)
+            if key == mod_code:
+                if self.modifier_state[mod_name]:
+                    self.modifier_state[mod_name] = False
+                    e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
+                    self.on_key_event('key_release', e_mod)
                 return  # Only send the modifier event
         # Otherwise, send the main key
         if text and len(text) == 1 and 32 <= ord(text) <= 126:
