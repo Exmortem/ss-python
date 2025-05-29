@@ -18,6 +18,7 @@ import psutil
 import signal
 import json
 from pynput import keyboard
+import keyboard as keyboard_lib  # NEW: Import keyboard library for robust key simulation
 
 # Control Port offset - Should match client
 CONTROL_PORT_OFFSET = 1
@@ -186,32 +187,30 @@ KEYCODE_MAP = {
 }
 # --- END NEW --- 
 
-def get_pynput_key(keysym, char, keycode):
-    """Maps a Tkinter keysym, char, or keycode to a pynput Key object or character."""
-    # Priority 1: Check specific keycode mapping (for Numpad differentiation etc.)
-    if keycode in KEYCODE_MAP:
-        # print(f"Mapping keycode {keycode} to KEYCODE_MAP: {KEYCODE_MAP[keycode]}")
-        return KEYCODE_MAP[keycode]
-        
-    # Priority 2: Check exact keysym mapping (covers modifiers, F-keys, nav keys)
+def get_sim_key(keysym, char, keycode):
+    """Returns a tuple (sim_type, value) for simulating the key event."""
+    # Priority 1: Numpad numbers (KP_0..KP_9)
+    if keysym and keysym.startswith('KP_') and len(keysym) == 4 and keysym[3] in '0123456789':
+        num = keysym[3]
+        return ('keyboard', f'num {num}')
+    # Priority 2: Top-row numbers (0..9)
+    elif keysym and len(keysym) == 1 and keysym in '0123456789':
+        return ('keyboard', keysym)
+    # Priority 3: Use KEYCODE_MAP for other special keys
+    elif keycode in KEYCODE_MAP:
+        return ('pynput', KEYCODE_MAP[keycode])
+    # Priority 4: Use SPECIAL_KEYS for other special keys
     elif keysym in SPECIAL_KEYS:
-        # print(f"Mapping keysym '{keysym}' to SPECIAL_KEYS: {SPECIAL_KEYS[keysym]}")
-        return SPECIAL_KEYS[keysym]
-        
-    # Priority 3: Check character (covers letters, symbols, top-row numbers)
-    elif char and len(char) == 1 and keysym != 'space': # Check char FIRST for printables
-        # print(f"Mapping keysym '{keysym}' via char: '{char}'")
-        return char
-        
-    # Priority 4: Fallback: Check if keysym itself is a single character (less common case)
-    elif len(keysym) == 1:
-         # print(f"Mapping keysym '{keysym}' via keysym itself (fallback)")
-         return keysym 
-         
-    # Priority 5: Unmapped
+        return ('pynput', SPECIAL_KEYS[keysym])
+    # Priority 5: Use char for printable characters
+    elif char and len(char) == 1 and keysym != 'space':
+        return ('pynput', char)
+    # Priority 6: Fallback: single-char keysym
+    elif keysym and len(keysym) == 1:
+        return ('pynput', keysym)
     else:
         print(f"[Control] Warning: Unmapped keysym: {keysym}, char: {char}, keycode: {keycode}")
-        return None
+        return (None, None)
 
 def kill_process_on_port(port):
     """Kill any process using the specified port"""
@@ -893,22 +892,30 @@ class ScreenShareHost:
                             char = key_data.get('char')
                             keycode = key_data.get('keycode') # Get keycode
                             
-                            # Pass keycode to mapping function
-                            pynput_key = get_pynput_key(keysym, char, keycode)
+                            # Use new get_sim_key function
+                            sim_type, sim_value = get_sim_key(keysym, char, keycode)
                             
-                            if pynput_key:
+                            if sim_type == 'keyboard':
+                                # Use keyboard library for numpad/top-row numbers
                                 if event_type == 'key_press':
-                                    print(f"[Control {addr}] Simulating PRESS: {pynput_key} (From keysym: {keysym}, char: {char})") # Added log
-                                    self.keyboard_controller.press(pynput_key)
+                                    print(f"[Control {addr}] Simulating PRESS: {sim_value} (keyboard lib) (From keysym: {keysym}, char: {char})")
+                                    keyboard_lib.press_and_release(sim_value)  # press_and_release for stateless simulation
                                 elif event_type == 'key_release':
-                                    print(f"[Control {addr}] Simulating RELEASE: {pynput_key} (From keysym: {keysym}, char: {char})") # Added log
-                                    self.keyboard_controller.release(pynput_key)
+                                    # keyboard lib does not distinguish press/release easily; skip or use send
+                                    pass
+                            elif sim_type == 'pynput' and sim_value is not None:
+                                if event_type == 'key_press':
+                                    print(f"[Control {addr}] Simulating PRESS: {sim_value} (pynput) (From keysym: {keysym}, char: {char})")
+                                    self.keyboard_controller.press(sim_value)
+                                elif event_type == 'key_release':
+                                    print(f"[Control {addr}] Simulating RELEASE: {sim_value} (pynput) (From keysym: {keysym}, char: {char})")
+                                    self.keyboard_controller.release(sim_value)
                                 else:
                                     print(f"[Control Warning] Unknown event type: {event_type}")
                             else:
-                                 # Already warned in get_pynput_key
-                                 pass
-                                 
+                                # Already warned in get_sim_key
+                                pass
+                                
                         except json.JSONDecodeError:
                             print(f"[Control ERROR {addr}] Invalid JSON received: {message}")
                         except Exception as e:
