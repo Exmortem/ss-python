@@ -139,15 +139,6 @@ class PyQtStreamWindow:
         0x20: 'space',
     }
 
-    MODIFIER_KEYS = {
-        'Control_L': 0x01000022,
-        'Control_R': 0x01000023,
-        'Shift_L': 0x01000020,
-        'Shift_R': 0x01000021,
-        'Alt_L': 0x01000026,
-        'Alt_R': 0x01000027,
-    }
-
     def __init__(self, width, height, on_key_event, on_close, image_queue=None, client=None):
         from PyQt5 import QtWidgets, QtGui, QtCore
         self.QtWidgets = QtWidgets
@@ -190,14 +181,6 @@ class PyQtStreamWindow:
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_from_queue)
         self.timer.start(10)  # 10 ms = 100 FPS
-        self.modifier_state = {
-            'Control_L': False,
-            'Control_R': False,
-            'Shift_L': False,
-            'Shift_R': False,
-            'Alt_L': False,
-            'Alt_R': False,
-        }
 
     def set_queue(self, image_queue, client):
         self.image_queue = image_queue
@@ -232,21 +215,7 @@ class PyQtStreamWindow:
     def keyPressEvent(self, event):
         key = event.key()
         text = event.text()
-        # Handle modifier keys
-        for mod_name, mod_code in self.MODIFIER_KEYS.items():
-            if event.modifiers() & self.QtCore.Qt.ControlModifier and 'Control' in mod_name and not self.modifier_state[mod_name]:
-                self.modifier_state[mod_name] = True
-                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
-                self.on_key_event('key_press', e_mod)
-            if event.modifiers() & self.QtCore.Qt.ShiftModifier and 'Shift' in mod_name and not self.modifier_state[mod_name]:
-                self.modifier_state[mod_name] = True
-                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
-                self.on_key_event('key_press', e_mod)
-            if event.modifiers() & self.QtCore.Qt.AltModifier and 'Alt' in mod_name and not self.modifier_state[mod_name]:
-                self.modifier_state[mod_name] = True
-                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
-                self.on_key_event('key_press', e_mod)
-        # Main key
+        # Use printable char if available, else map Qt key to Tk keysym
         if text and len(text) == 1 and 32 <= ord(text) <= 126:
             keysym = text
             char = text
@@ -259,7 +228,6 @@ class PyQtStreamWindow:
     def keyReleaseEvent(self, event):
         key = event.key()
         text = event.text()
-        # Main key
         if text and len(text) == 1 and 32 <= ord(text) <= 126:
             keysym = text
             char = text
@@ -268,20 +236,6 @@ class PyQtStreamWindow:
             char = text
         e = type('Event', (), {'keysym': keysym, 'char': char, 'keycode': key})
         self.on_key_event('key_release', e)
-        # Handle modifier keys
-        for mod_name, mod_code in self.MODIFIER_KEYS.items():
-            if mod_name.startswith('Control') and not (event.modifiers() & self.QtCore.Qt.ControlModifier) and self.modifier_state[mod_name]:
-                self.modifier_state[mod_name] = False
-                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
-                self.on_key_event('key_release', e_mod)
-            if mod_name.startswith('Shift') and not (event.modifiers() & self.QtCore.Qt.ShiftModifier) and self.modifier_state[mod_name]:
-                self.modifier_state[mod_name] = False
-                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
-                self.on_key_event('key_release', e_mod)
-            if mod_name.startswith('Alt') and not (event.modifiers() & self.QtCore.Qt.AltModifier) and self.modifier_state[mod_name]:
-                self.modifier_state[mod_name] = False
-                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
-                self.on_key_event('key_release', e_mod)
 
     def closeEvent(self, event):
         self.on_close()
@@ -311,6 +265,7 @@ class ScreenShareClient:
         self.running = False
         self.config_file = "client_config.json"
         self.frame_queue = queue.Queue(maxsize=10)
+        self._update_frame_count = 0
         self.stream_socket = None # Renamed for clarity
         self.control_socket = None # New socket for control messages
         self.stream_window = None
