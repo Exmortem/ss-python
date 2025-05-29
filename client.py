@@ -179,6 +179,11 @@ class ScreenShareClient:
         self.canvas_image_item = None # ID of the image item on canvas
         self.display_method = "label"  # Always use label for simpler compatibility
         self.pyqt_window = None
+        self.last_host = None
+        self.last_port = None
+        self.reconnect_thread = None
+        self.reconnect_event = threading.Event()
+        self.user_initiated_disconnect = False
         
         # --- Create temp directory for file-based display if needed ---
         if USE_FILE_BASED_IMAGES:
@@ -547,12 +552,16 @@ class ScreenShareClient:
                  except: pass
             # Start update frame directly
             self.update_id = self.root.after(100, self.update_frame)
+            self.last_host = host_ip
+            self.last_port = stream_port
+            self.user_initiated_disconnect = False
             
         except (ValueError, socket.timeout, ConnectionRefusedError, OSError, Exception) as e:
             error_msg = f"Error connecting to {friendly_name}: {str(e)}"
             print(error_msg)
             self.status_label.config(text=error_msg)
             self.close_sockets()
+            self.start_reconnect_loop()
             
     def manual_connect(self):
         """Connect to host using manually entered IP and port"""
@@ -633,19 +642,26 @@ class ScreenShareClient:
                  except: pass
             # Start update frame directly
             self.update_id = self.root.after(100, self.update_frame)
+            self.last_host = host
+            self.last_port = port
+            self.user_initiated_disconnect = False
             
         except socket.timeout:
             self.status_label.config(text=f"Error: Connection timed out ({host}:{port if not connected_stream else control_port})")
             self.close_sockets()
+            self.start_reconnect_loop()
         except ConnectionRefusedError:
             self.status_label.config(text=f"Error: Connection refused ({host}:{port if not connected_stream else control_port})")
             self.close_sockets()
+            self.start_reconnect_loop()
         except ValueError:
              self.status_label.config(text="Error: Invalid Port Number")
              self.close_sockets()
+             self.start_reconnect_loop()
         except Exception as e:
             self.status_label.config(text=f"Error connecting: {str(e)}")
             self.close_sockets()
+            self.start_reconnect_loop()
             
     def close_sockets(self):
         """Safely close both stream and control sockets."""
@@ -668,6 +684,7 @@ class ScreenShareClient:
                 self.control_socket = None
         self.connected = False
         print("Sockets closed.")
+        self.start_reconnect_loop()
         
     def update_frame(self):
         # Update stats regularly regardless of frame display
@@ -897,6 +914,8 @@ class ScreenShareClient:
         self.reset_statistics()
         # Update UI in main thread
         self._update_ui_after_stop()
+        self.user_initiated_disconnect = True
+        self.stop_reconnect_loop()
         
     def _update_ui_after_stop(self):
         """Update UI elements after stopping (called from main thread)"""
@@ -1129,6 +1148,87 @@ class ScreenShareClient:
         except (tk.TclError, AttributeError) as e:
             # Ignore errors if UI elements don't exist yet or anymore
             pass
+
+    def start_reconnect_loop(self):
+        if self.user_initiated_disconnect:
+            return
+        if self.reconnect_thread and self.reconnect_thread.is_alive():
+            return
+        self.reconnect_event.clear()
+        def reconnect_worker():
+            while not self.reconnect_event.is_set():
+                if self.last_host and self.last_port and not self.connected:
+                    print(f"[Reconnect] Attempting to reconnect to {self.last_host}:{self.last_port}...")
+                    try:
+                        self.manual_connect_to_host(self.last_host, self.last_port)
+                        if self.connected:
+                            print("[Reconnect] Reconnected successfully!")
+                            break
+                    except Exception as e:
+                        print(f"[Reconnect] Failed: {e}")
+                self.reconnect_event.wait(3)
+        self.reconnect_thread = threading.Thread(target=reconnect_worker, daemon=True)
+        self.reconnect_thread.start()
+
+    def stop_reconnect_loop(self):
+        self.reconnect_event.set()
+        if self.reconnect_thread:
+            self.reconnect_thread = None
+
+    def manual_connect_to_host(self, host, port):
+        # This is a stripped-down version of manual_connect for reconnect attempts
+        try:
+            print(f"[Reconnect] Connecting stream to {host}:{port}...")
+            self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.stream_socket.settimeout(5)
+            self.stream_socket.connect((host, port))
+            self.stream_socket.settimeout(None)
+            print("[Reconnect] Stream socket connected.")
+            # --- Receive Dimensions ---
+            self.stream_socket.settimeout(5.0)
+            size_data = self.stream_socket.recv(4)
+            if not size_data or len(size_data) < 4: raise ValueError("No dim size")
+            msg_len = struct.unpack('>I', size_data)[0]
+            if msg_len > 4096: raise ValueError(f"Dim size too large: {msg_len}")
+            dims_json_bytes = self.stream_socket.recv(msg_len)
+            if not dims_json_bytes or len(dims_json_bytes) < msg_len: raise ValueError("No dim json")
+            dims_json = dims_json_bytes.decode('utf-8')
+            dims = json.loads(dims_json)
+            new_width = dims.get('width')
+            new_height = dims.get('height')
+            if not isinstance(new_width, int) or not isinstance(new_height, int) or new_width <= 0 or new_height <= 0:
+                raise ValueError(f"Invalid dims: w={new_width}, h={new_height}")
+            self.stream_width = new_width
+            self.stream_height = new_height
+            self.stream_format = dims.get('format', 'jpeg')
+            self.stream_socket.settimeout(None)
+            # Connect control socket
+            control_port = port + CONTROL_PORT_OFFSET
+            print(f"[Reconnect] Connecting control to {host}:{control_port}...")
+            self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.control_socket.settimeout(5)
+            self.control_socket.connect((host, control_port))
+            self.control_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.control_socket.settimeout(None)
+            print("[Reconnect] Control socket connected.")
+            self.running = True
+            self.connected = True
+            self.status_label.config(text=f"Reconnected to {host}:{port} (Ctrl:{control_port}, Size:{self.stream_width}x{self.stream_height}, Format: {self.stream_format})")
+            self.connect_button.config(state="disabled")
+            self.disconnect_button.config(state="normal")
+            self.manual_connect_button.config(state="disabled")
+            self.service_listbox.config(state="disabled")
+            self.save_last_ip(host)
+            self.create_stream_window()
+            threading.Thread(target=self.receive_stream, daemon=True).start()
+            if self.update_id:
+                try: self.root.after_cancel(self.update_id)
+                except: pass
+            self.update_id = self.root.after(100, self.update_frame)
+            self.stop_reconnect_loop()
+        except Exception as e:
+            print(f"[Reconnect] Error connecting: {e}")
+            self.close_sockets()
 
 if __name__ == "__main__":
     client = None # Initialize client to None
