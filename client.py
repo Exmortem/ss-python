@@ -93,7 +93,6 @@ class PyQtStreamWindow:
 
     def update_from_queue(self):
         try:
-            print("[PyQtStreamWindow] update_from_queue called")
             # PyQt optimization: always display the most recent frame, drop older ones
             if self.image_queue and not self.image_queue.empty():
                 latest_img = None
@@ -684,22 +683,22 @@ class ScreenShareClient:
     def close_sockets(self):
         """Safely close both stream and control sockets."""
         print("Closing sockets...")
-        if self.stream_socket:
-            try:
+        try:
+            if self.stream_socket:
                 self.stream_socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass # Ignore if already closed
-            finally:
-                 self.stream_socket.close()
-                 self.stream_socket = None
-        if self.control_socket:
-            try:
+                self.stream_socket.close()
+                self.stream_socket = None
+                print("Stream socket closed.")
+        except Exception as e:
+            print(f"Error closing stream socket: {e}")
+        try:
+            if self.control_socket:
                 self.control_socket.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                 pass # Ignore if already closed
-            finally:
                 self.control_socket.close()
                 self.control_socket = None
+                print("Control socket closed.")
+        except Exception as e:
+            print(f"Error closing control socket: {e}")
         self.connected = False
         self.running = False
         print("Sockets closed. Starting reconnect loop if not user-initiated...")
@@ -730,96 +729,53 @@ class ScreenShareClient:
     
     def receive_stream(self):
         frame_count = 0 # Simple frame counter for logging
-        log_interval = 100 # Log every 100 frames
+        log_interval = 100
+        print("[Stream Thread] Started successfully")
         try:
-            print("[Stream Thread] Started successfully")
-            while self.running:
+            while self.running and self.stream_socket:
                 try:
-                    # Get frame size
+                    # Receive frame size
                     size_data = self.stream_socket.recv(4)
                     if not size_data:
                         print("[Stream Thread] Connection closed")
                         break
-                    size = int.from_bytes(size_data, byteorder='big')
-                    if size <= 0:
+                    size = struct.unpack('!I', size_data)[0]
+                    if size <= 0 or size > 10*1024*1024:
                         print(f"[Stream] Warning: Received invalid frame size: {size}")
-                        continue
-                    
-                    # Receive frame data in chunks efficiently
+                        break
+                    # Receive frame data
                     data = b''
                     while len(data) < size:
-                        bytes_remaining = size - len(data)
-                        packet = self.stream_socket.recv(min(4096, bytes_remaining))
+                        packet = self.stream_socket.recv(size - len(data))
                         if not packet:
-                            self.running = False
                             print("[Stream] Connection closed while receiving frame data")
-                            break 
+                            break
                         data += packet
-                    if not self.running: break
                     if len(data) != size:
                         print(f"[Stream] Warning: Incomplete frame data received. Expected {size}, got {len(data)}")
-                        continue
-
+                        break
                     # Decode frame
                     try:
-                        frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                        frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
                         if frame is None:
                             print("[Stream] Warning: Failed to decode frame data")
                             continue
-                        
-                        # Print frame info occasionally
-                        if frame_count % (log_interval * 5) == 0:
-                            print(f"[Stream] Frame details: shape={frame.shape}, dtype={frame.dtype}")
-                        
-                        # Convert to PIL Image with error handling
-                        try:
-                            # Make sure frame is valid BGR format for conversion
-                            if len(frame.shape) != 3 or frame.shape[2] != 3:
-                                print(f"[Stream] Warning: Unexpected frame format: {frame.shape}")
-                                continue
-                                
-                            # Convert BGR to RGB (PIL uses RGB)
-                            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            
-                            # Create PIL Image
-                            image = Image.fromarray(image)
-                            
-                            # Verify the image was created correctly
-                            if not image or not hasattr(image, 'mode') or not hasattr(image, 'size'):
-                                print("[Stream] Warning: Invalid PIL image created")
-                                continue
-                                
-                            # PIL image info on first frame for debugging
-                            if frame_count == 0:
-                                print(f"[Stream] First image details: mode={image.mode}, size={image.size}")
-                        except Exception as img_e:
-                            print(f"[Stream] Error converting frame to PIL Image: {img_e}")
-                            continue
+                        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                     except Exception as dec_e:
                         print(f"[Stream] Error decoding frame: {dec_e}")
                         continue
-                    
-                    # Track received frame
                     self.stats['frames_received'] += 1
                     self.stats['interval_frames_received'] += 1
-                    
-                    # Queue management for optimal performance
                     queue_size = self.image_queue.qsize()
                     queue_capacity = self.image_queue.maxsize
                     queue_fullness = queue_size / queue_capacity
-                    
-                    # Advanced queue management strategy
+                    # Queue management (unchanged)
                     if queue_fullness > 0.9:
-                        # Critical queue pressure: prioritize newest frames
                         if queue_fullness > 0.95:
-                            # Queue almost full - very aggressive dropping
-                            # Skip half the frames or keep only every 3rd frame
                             if frame_count % 3 != 0:
                                 self.stats['frames_dropped'] += 1
                                 frame_count += 1
                                 continue
-                            
-                            # Clear several old frames to relieve pressure
                             frames_to_clear = min(5, queue_size // 2)
                             for _ in range(frames_to_clear):
                                 try:
@@ -828,22 +784,16 @@ class ScreenShareClient:
                                 except queue.Empty:
                                     break
                         else:
-                            # Queue very full but not critical - moderate dropping
-                            # Skip every other frame
                             if frame_count % 2 == 0:
                                 self.stats['frames_dropped'] += 1
                                 frame_count += 1
                                 continue
-                            
-                            # Clear a couple old frames
                             for _ in range(2):
                                 try:
                                     self.image_queue.get_nowait()
                                     self.stats['frames_dropped'] += 1
                                 except queue.Empty:
                                     break
-                    
-                    # Add frame to queue
                     try:
                         if self.image_queue:
                             self.image_queue.put_nowait(image)
@@ -851,62 +801,27 @@ class ScreenShareClient:
                         else:
                             print("[Stream] Warning: self.image_queue is None!")
                     except queue.Full:
-                        # Queue full despite management, force add
                         try:
                             if self.image_queue:
-                                self.image_queue.get_nowait()  # Remove oldest
+                                self.image_queue.get_nowait()
                                 self.image_queue.put_nowait(image)
                                 self.stats['frames_dropped'] += 1
                                 frame_count += 1
                         except Exception as q_e:
                             print(f"[Stream] Error managing full queue: {q_e}")
                             self.stats['frames_dropped'] += 1
-                    
-                    # Occasional logging
                     if frame_count % log_interval == 0:
                         print(f"[Stream] Received {frame_count} frames, Queue: {queue_size}/{queue_capacity} ({queue_fullness:.0%})")
-
-                except socket.timeout:
-                    continue 
-                except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, OSError) as e:
-                    if self.running:
-                        print(f"[Stream] Connection error: {e}")
-                        try:
-                            if self.root and self.root.winfo_exists():
-                                self.root.after(0, lambda msg=f"Connection error: {e}": 
-                                               self.status_label.config(text=msg))
-                        except:
-                            pass
-                    break 
                 except Exception as e:
-                    if self.running: 
-                        print(f"[Stream] Error: {e}")
-                        import traceback
-                        traceback.print_exc()
+                    print(f"[Stream] Error: {e}")
                     break
-                    
         except Exception as e:
-            if self.running: 
-                print(f"[Stream] Fatal error: {e}")
-                import traceback
-                traceback.print_exc()
-            try:
-                if self.root and self.root.winfo_exists():
-                    self.root.after(0, lambda msg=f"Fatal error: {e}": 
-                                   self.status_label.config(text=msg))
-            except:
-                pass
+            print(f"[Stream] Fatal error: {e}")
         finally:
             print(f"[Stream] Exiting, processed {frame_count} frames")
-            # --- Ensure disconnect state and reconnect logic ---
-            self.connected = False
             self.running = False
+            self.connected = False
             self.close_sockets()
-            try:
-                if self.root and self.root.winfo_exists():
-                    self.root.after(0, lambda: self.status_label.config(text="Status: Disconnected (stream lost)"))
-            except:
-                pass
 
     def stop(self):
         print("Stopping client...")
