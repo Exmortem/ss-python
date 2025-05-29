@@ -399,9 +399,10 @@ class ScreenShareClient:
         # --- End Call --- 
         
     def create_stream_window(self):
-        # Always use PyQt stream window
+        # Always close the old PyQt window and create a new image queue
         if self.pyqt_window:
             self.pyqt_window.close()
+        self.image_queue = queue.Queue(maxsize=5)
         self.pyqt_window = PyQtStreamWindow(
             max(150, self.stream_width),
             max(30, self.stream_height),
