@@ -40,32 +40,18 @@ class PyQtStreamWindow:
         self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         self.window = QtWidgets.QWidget()
         self.window.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint)
-        self.window.setGeometry(0, 0, width, height + 4)  # Add space for bar
+        self.window.setGeometry(0, 0, width, height)
         self.window.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
         self.window.setFocusPolicy(QtCore.Qt.StrongFocus)
-        # Main layout
-        self.vbox = QtWidgets.QVBoxLayout(self.window)
-        self.vbox.setContentsMargins(0, 0, 0, 0)
-        self.vbox.setSpacing(0)
-        self.label = QtWidgets.QLabel()
-        self.label.setFixedSize(width, height)
+        self.label = QtWidgets.QLabel(self.window)
+        self.label.setGeometry(0, 0, width, height)
         self.label.setStyleSheet("background-color: black;")
-        self.vbox.addWidget(self.label)
-        # Focus bar
-        self.focus_bar = QtWidgets.QWidget()
-        self.focus_bar.setFixedHeight(4)
-        self.focus_bar.setStyleSheet("background-color: red;")
-        self.vbox.addWidget(self.focus_bar)
-        self.window.setLayout(self.vbox)
         self.window.keyPressEvent = self.keyPressEvent
         self.window.keyReleaseEvent = self.keyReleaseEvent
         self.window.closeEvent = self.closeEvent
-        self.window.focusInEvent = self.focusInEvent
-        self.window.focusOutEvent = self.focusOutEvent
         self.window.show()
         self.window.activateWindow()
         self.window.raise_()
-        self.window.setFocus()
         # QTimer for high-frequency updates
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_from_queue)
@@ -115,14 +101,6 @@ class PyQtStreamWindow:
 
     def closeEvent(self, event):
         self.on_close()
-        event.accept()
-
-    def focusInEvent(self, event):
-        self.focus_bar.setStyleSheet("background-color: green;")
-        event.accept()
-
-    def focusOutEvent(self, event):
-        self.focus_bar.setStyleSheet("background-color: red;")
         event.accept()
 
     def close(self):
