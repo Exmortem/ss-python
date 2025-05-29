@@ -14,6 +14,7 @@ import sys
 import struct # Added for unpacking size
 import tempfile  # For temporary file-based image handling
 import importlib
+import traceback
 
 # Control Port offset
 CONTROL_PORT_OFFSET = 1
@@ -893,6 +894,7 @@ class ScreenShareClient:
 
     def stop(self):
         print("Stopping client...")
+        traceback.print_stack()
         self.user_initiated_disconnect = True  # Only set here for manual disconnect
         # --- Cancel pending update --- 
         if self.update_id:
