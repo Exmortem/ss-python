@@ -62,19 +62,15 @@ class PyQtStreamWindow:
         self.client = client
 
     def update_from_queue(self):
-        # PyQt optimization: always display the most recent frame, drop older ones
         if self.image_queue and not self.image_queue.empty():
-            latest_img = None
-            while not self.image_queue.empty():
-                try:
-                    latest_img = self.image_queue.get_nowait()
-                except Exception:
-                    break
-            if latest_img is not None:
+            try:
+                latest_img = self.image_queue.get_nowait()
                 self.update_image(latest_img)
                 if self.client:
                     self.client.stats['frames_displayed'] += 1
                     self.client.stats['interval_frames_displayed'] += 1
+            except Exception:
+                pass
 
     def update_image(self, pil_image):
         import numpy as np
@@ -127,12 +123,7 @@ class ScreenShareClient:
         self.stream_label = None
         self.stream_thread = None
         self.control_thread = None # Thread for sending control signals
-        # --- PyQt optimization: use smaller queue for lower latency ---
-        self.stream_window_type = self.load_stream_window_type()  # 'tkinter' or 'pyqt'
-        if self.stream_window_type == 'pyqt':
-            self.image_queue = queue.Queue(maxsize=5)
-        else:
-            self.image_queue = queue.Queue(maxsize=60)
+        self.image_queue = queue.Queue(maxsize=60)  # Increased queue size for better buffering
         self.stop_event = threading.Event()
         self.last_ip = self.load_last_ip()
         self.connected = False
@@ -143,6 +134,7 @@ class ScreenShareClient:
         self.tk_image = None # Keep reference to PhotoImage
         self.canvas_image_item = None # ID of the image item on canvas
         self.display_method = "label"  # Always use label for simpler compatibility
+        self.stream_window_type = self.load_stream_window_type()  # 'tkinter' or 'pyqt'
         self.pyqt_window = None
         
         # --- Create temp directory for file-based display if needed ---
@@ -1297,13 +1289,6 @@ class ScreenShareClient:
     def _on_window_type_change(self, value):
         self.set_stream_window_type(value)
         self.window_type_var.set(self.stream_window_type)
-        # Update queue size for new window type
-        if self.stream_window_type == 'pyqt':
-            self.image_queue = queue.Queue(maxsize=5)
-        else:
-            self.image_queue = queue.Queue(maxsize=60)
-        # Save the setting
-        self.save_stream_window_type(self.stream_window_type)
 
 if __name__ == "__main__":
     client = None # Initialize client to None
