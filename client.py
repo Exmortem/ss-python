@@ -876,6 +876,15 @@ class ScreenShareClient:
                 pass
         finally:
             print(f"[Stream] Exiting, processed {frame_count} frames")
+            # --- Ensure disconnect state and reconnect logic ---
+            self.connected = False
+            self.running = False
+            self.close_sockets()
+            try:
+                if self.root and self.root.winfo_exists():
+                    self.root.after(0, lambda: self.status_label.config(text="Status: Disconnected (stream lost)"))
+            except:
+                pass
 
     def stop(self):
         print("Stopping client...")
