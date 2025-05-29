@@ -828,15 +828,19 @@ class ScreenShareClient:
                     
                     # Add frame to queue
                     try:
-                        self.image_queue.put_nowait(image)
-                        frame_count += 1
+                        if self.image_queue:
+                            self.image_queue.put_nowait(image)
+                            frame_count += 1
+                        else:
+                            print("[Stream] Warning: self.image_queue is None!")
                     except queue.Full:
                         # Queue full despite management, force add
                         try:
-                            self.image_queue.get_nowait()  # Remove oldest
-                            self.image_queue.put_nowait(image)
-                            self.stats['frames_dropped'] += 1
-                            frame_count += 1
+                            if self.image_queue:
+                                self.image_queue.get_nowait()  # Remove oldest
+                                self.image_queue.put_nowait(image)
+                                self.stats['frames_dropped'] += 1
+                                frame_count += 1
                         except Exception as q_e:
                             print(f"[Stream] Error managing full queue: {q_e}")
                             self.stats['frames_dropped'] += 1
