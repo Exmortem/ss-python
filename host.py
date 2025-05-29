@@ -937,6 +937,7 @@ class ScreenShareHost:
                             event_type = key_data.get('type')
                             keycode = key_data.get('keycode')
                             char = key_data.get('char')
+                            print(f"[DEBUG] Host received key event: {key_data}")
                             
                             sim_key = get_sim_key(keycode, char)
                             
@@ -1063,7 +1064,7 @@ class ScreenShareHost:
                     # Send frame size and data
                     client_socket.sendall(size_data)
                     client_socket.sendall(buffer.tobytes())
-                    print(f"[Host {addr}] Sent frame {frame_count+1} ({size} bytes)")
+                    # print(f"[Host {addr}] Sent frame {frame_count+1} ({size} bytes)")
                     
                     # Control frame rate
                     frame_end_time = time.perf_counter()

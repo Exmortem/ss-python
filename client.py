@@ -429,7 +429,7 @@ class ScreenShareClient:
             pass
         
     def send_key_event(self, event_type, event):
-        """Formats and sends key event data over the control socket."""
+        print(f"[DEBUG] send_key_event called: type={event_type}, keycode={getattr(event, 'keycode', None)}, char={getattr(event, 'char', '')}, running={self.running}, control_socket={self.control_socket is not None}")
         if self.control_socket and self.running:
             try:
                 key_data = {
@@ -440,10 +440,8 @@ class ScreenShareClient:
                 message = json.dumps(key_data).encode('utf-8')
                 self.control_socket.sendall(message + b'\n') 
             except (socket.error, BrokenPipeError, ConnectionResetError) as e:
-                # print(f"Control socket error sending key event: {e}")
                 self.root.after(0, lambda: self.status_label.config(text=f"Control connection error: {e}"))
             except Exception as e:
-                 # print(f"Unexpected error sending key event: {e}")
                  pass
 
     def connect_to_selected_host(self):
