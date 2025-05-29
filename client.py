@@ -683,7 +683,8 @@ class ScreenShareClient:
                 self.control_socket.close()
                 self.control_socket = None
         self.connected = False
-        print("Sockets closed.")
+        self.running = False
+        print("Sockets closed. Starting reconnect loop if not user-initiated...")
         self.start_reconnect_loop()
         
     def update_frame(self):
@@ -1151,11 +1152,14 @@ class ScreenShareClient:
 
     def start_reconnect_loop(self):
         if self.user_initiated_disconnect:
+            print("[Reconnect] Not starting reconnect loop: user initiated disconnect.")
             return
         if self.reconnect_thread and self.reconnect_thread.is_alive():
+            print("[Reconnect] Reconnect thread already running.")
             return
         self.reconnect_event.clear()
         def reconnect_worker():
+            print("[Reconnect] Reconnect thread started.")
             while not self.reconnect_event.is_set():
                 if self.last_host and self.last_port and not self.connected:
                     print(f"[Reconnect] Attempting to reconnect to {self.last_host}:{self.last_port}...")
@@ -1166,7 +1170,10 @@ class ScreenShareClient:
                             break
                     except Exception as e:
                         print(f"[Reconnect] Failed: {e}")
+                else:
+                    print(f"[Reconnect] Skipping attempt: last_host={self.last_host}, last_port={self.last_port}, connected={self.connected}")
                 self.reconnect_event.wait(3)
+            print("[Reconnect] Reconnect thread exiting.")
         self.reconnect_thread = threading.Thread(target=reconnect_worker, daemon=True)
         self.reconnect_thread.start()
 
@@ -1228,6 +1235,8 @@ class ScreenShareClient:
             self.stop_reconnect_loop()
         except Exception as e:
             print(f"[Reconnect] Error connecting: {e}")
+            self.connected = False
+            self.running = False
             self.close_sockets()
 
 if __name__ == "__main__":
