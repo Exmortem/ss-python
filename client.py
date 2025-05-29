@@ -232,14 +232,21 @@ class PyQtStreamWindow:
     def keyPressEvent(self, event):
         key = event.key()
         text = event.text()
-        # If this is a modifier key, send only that modifier
+        # Handle modifier keys
         for mod_name, mod_code in self.MODIFIER_KEYS.items():
-            if key == mod_code and not self.modifier_state[mod_name]:
+            if event.modifiers() & self.QtCore.Qt.ControlModifier and 'Control' in mod_name and not self.modifier_state[mod_name]:
                 self.modifier_state[mod_name] = True
                 e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
                 self.on_key_event('key_press', e_mod)
-                return  # Only send the modifier event
-        # Otherwise, send the main key
+            if event.modifiers() & self.QtCore.Qt.ShiftModifier and 'Shift' in mod_name and not self.modifier_state[mod_name]:
+                self.modifier_state[mod_name] = True
+                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
+                self.on_key_event('key_press', e_mod)
+            if event.modifiers() & self.QtCore.Qt.AltModifier and 'Alt' in mod_name and not self.modifier_state[mod_name]:
+                self.modifier_state[mod_name] = True
+                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
+                self.on_key_event('key_press', e_mod)
+        # Main key
         if text and len(text) == 1 and 32 <= ord(text) <= 126:
             keysym = text
             char = text
@@ -252,14 +259,7 @@ class PyQtStreamWindow:
     def keyReleaseEvent(self, event):
         key = event.key()
         text = event.text()
-        # If this is a modifier key, send only that modifier
-        for mod_name, mod_code in self.MODIFIER_KEYS.items():
-            if key == mod_code and self.modifier_state[mod_name]:
-                self.modifier_state[mod_name] = False
-                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
-                self.on_key_event('key_release', e_mod)
-                return  # Only send the modifier event
-        # Otherwise, send the main key
+        # Main key
         if text and len(text) == 1 and 32 <= ord(text) <= 126:
             keysym = text
             char = text
@@ -268,6 +268,20 @@ class PyQtStreamWindow:
             char = text
         e = type('Event', (), {'keysym': keysym, 'char': char, 'keycode': key})
         self.on_key_event('key_release', e)
+        # Handle modifier keys
+        for mod_name, mod_code in self.MODIFIER_KEYS.items():
+            if mod_name.startswith('Control') and not (event.modifiers() & self.QtCore.Qt.ControlModifier) and self.modifier_state[mod_name]:
+                self.modifier_state[mod_name] = False
+                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
+                self.on_key_event('key_release', e_mod)
+            if mod_name.startswith('Shift') and not (event.modifiers() & self.QtCore.Qt.ShiftModifier) and self.modifier_state[mod_name]:
+                self.modifier_state[mod_name] = False
+                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
+                self.on_key_event('key_release', e_mod)
+            if mod_name.startswith('Alt') and not (event.modifiers() & self.QtCore.Qt.AltModifier) and self.modifier_state[mod_name]:
+                self.modifier_state[mod_name] = False
+                e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
+                self.on_key_event('key_release', e_mod)
 
     def closeEvent(self, event):
         self.on_close()
