@@ -748,8 +748,12 @@ class ScreenShareClient:
         """Handle logic after the stream thread exits and sockets are closed."""
         print("[handle_stream_disconnect] Handling post-disconnect logic.")
         if not self.user_initiated_disconnect:
-            # Wait a bit to ensure all cleanup is done before reconnect
-            self.root.after(1000, self.start_reconnect_loop)
+            # If last stream processed 0 frames, wait longer before reconnecting
+            if hasattr(self, 'last_stream_frame_count') and self.last_stream_frame_count == 0:
+                print("[handle_stream_disconnect] Last stream processed 0 frames, waiting 3 seconds before reconnect.")
+                self.root.after(3000, self.start_reconnect_loop)
+            else:
+                self.root.after(1000, self.start_reconnect_loop)
 
     def update_frame(self):
         # Update stats regularly regardless of frame display
@@ -866,10 +870,10 @@ class ScreenShareClient:
             print(f"[Stream] Fatal error: {e}")
         finally:
             print(f"[Stream] Exiting, processed {frame_count} frames")
+            self.last_stream_frame_count = frame_count
             self.running = False
             self.connected = False
             self.close_sockets()
-            # Schedule reconnect from the main thread/UI, not from this thread
             if self.root and self.root.winfo_exists():
                 self.root.after(0, self.handle_stream_disconnect)
 
