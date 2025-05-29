@@ -92,30 +92,38 @@ class PyQtStreamWindow:
         self.client = client
 
     def update_from_queue(self):
-        # PyQt optimization: always display the most recent frame, drop older ones
-        if self.image_queue and not self.image_queue.empty():
-            latest_img = None
-            while not self.image_queue.empty():
-                try:
-                    latest_img = self.image_queue.get_nowait()
-                except Exception:
-                    break
-            if latest_img is not None:
-                self.update_image(latest_img)
-                if self.client:
-                    self.client.stats['frames_displayed'] += 1
-                    self.client.stats['interval_frames_displayed'] += 1
+        try:
+            print("[PyQtStreamWindow] update_from_queue called")
+            # PyQt optimization: always display the most recent frame, drop older ones
+            if self.image_queue and not self.image_queue.empty():
+                latest_img = None
+                while not self.image_queue.empty():
+                    try:
+                        latest_img = self.image_queue.get_nowait()
+                    except Exception:
+                        break
+                if latest_img is not None:
+                    self.update_image(latest_img)
+                    if self.client:
+                        self.client.stats['frames_displayed'] += 1
+                        self.client.stats['interval_frames_displayed'] += 1
+        except Exception as e:
+            print(f"[PyQtStreamWindow] Exception in update_from_queue: {e}")
 
     def update_image(self, pil_image):
-        import numpy as np
-        if pil_image.mode != 'RGB':
-            pil_image = pil_image.convert('RGB')
-        arr = np.array(pil_image)
-        h, w, ch = arr.shape
-        bytes_per_line = ch * w
-        qimg = self.QtGui.QImage(arr.data, w, h, bytes_per_line, self.QtGui.QImage.Format_RGB888)
-        pixmap = self.QtGui.QPixmap.fromImage(qimg)
-        self.label.setPixmap(pixmap)
+        try:
+            print("[PyQtStreamWindow] update_image called")
+            import numpy as np
+            if pil_image.mode != 'RGB':
+                pil_image = pil_image.convert('RGB')
+            arr = np.array(pil_image)
+            h, w, ch = arr.shape
+            bytes_per_line = ch * w
+            qimg = self.QtGui.QImage(arr.data, w, h, bytes_per_line, self.QtGui.QImage.Format_RGB888)
+            pixmap = self.QtGui.QPixmap.fromImage(qimg)
+            self.label.setPixmap(pixmap)
+        except Exception as e:
+            print(f"[PyQtStreamWindow] Exception in update_image: {e}")
 
     def keyPressEvent(self, event):
         keycode = event.nativeVirtualKey()
@@ -411,6 +419,15 @@ class ScreenShareClient:
             image_queue=self.image_queue,
             client=self
         )
+        # Force the PyQt window to the front and focused
+        try:
+            self.pyqt_window.window.show()
+            self.pyqt_window.window.activateWindow()
+            self.pyqt_window.window.raise_()
+            self.pyqt_window.window.setFocus()
+            print("[create_stream_window] PyQt window shown and focused")
+        except Exception as e:
+            print(f"[create_stream_window] Exception focusing PyQt window: {e}")
         
     def send_key_event(self, event_type, event):
         """Formats and sends key event data over the control socket."""
