@@ -406,12 +406,7 @@ class ScreenShareClient:
     def create_stream_window(self):
         # Always close the old PyQt window and create a new image queue
         if self.pyqt_window:
-            try:
-                self.pyqt_window.close()
-                print("Closed old PyQt window before creating new one.")
-            except Exception as e:
-                print(f"Error closing old PyQt window: {e}")
-            self.pyqt_window = None
+            self.root.after(0, lambda: self._safe_close_pyqt_window())
         self.image_queue = queue.Queue(maxsize=5)
         self.pyqt_window = PyQtStreamWindow(
             max(150, self.stream_width),
@@ -738,14 +733,9 @@ class ScreenShareClient:
         except Exception as e:
             print(f"Error closing control socket: {e}")
         self.control_socket = None
-        # Always close the PyQt window on disconnect
+        # Always close the PyQt window on disconnect (main thread)
         if self.pyqt_window:
-            try:
-                self.pyqt_window.close()
-                print("Closed PyQt window on disconnect.")
-            except Exception as e:
-                print(f"Error closing PyQt window on disconnect: {e}")
-            self.pyqt_window = None
+            self.root.after(0, lambda: self._safe_close_pyqt_window())
         # Clear image queue
         if hasattr(self, 'image_queue') and self.image_queue:
             try:
@@ -760,14 +750,9 @@ class ScreenShareClient:
     def handle_stream_disconnect(self):
         """Handle logic after the stream thread exits and sockets are closed."""
         print("[handle_stream_disconnect] Handling post-disconnect logic.")
-        # Always close the PyQt window on disconnect (extra safety)
+        # Always close the PyQt window on disconnect (main thread)
         if self.pyqt_window:
-            try:
-                self.pyqt_window.close()
-                print("Closed PyQt window on disconnect (handle_stream_disconnect).")
-            except Exception as e:
-                print(f"Error closing PyQt window on disconnect (handle_stream_disconnect): {e}")
-            self.pyqt_window = None
+            self.root.after(0, lambda: self._safe_close_pyqt_window())
         if not self.user_initiated_disconnect:
             # If last stream processed 0 frames, wait longer before reconnecting
             if hasattr(self, 'last_stream_frame_count') and self.last_stream_frame_count == 0:
@@ -1206,6 +1191,15 @@ class ScreenShareClient:
         self.reconnect_event.set()
         if self.reconnect_thread:
             self.reconnect_thread = None
+
+    def _safe_close_pyqt_window(self):
+        if self.pyqt_window:
+            try:
+                self.pyqt_window.close()
+                print("Closed PyQt window (main thread).")
+            except Exception as e:
+                print(f"Error closing PyQt window (main thread): {e}")
+            self.pyqt_window = None
 
 if __name__ == "__main__":
     client = None # Initialize client to None
