@@ -1229,18 +1229,20 @@ class ScreenShareClient:
             print("[Reconnect] Control socket connected.")
             self.running = True
             self.connected = True
-            self.status_label.config(text=f"Reconnected to {host}:{port} (Ctrl:{control_port}, Size:{self.stream_width}x{self.stream_height}, Format: {self.stream_format})")
-            self.connect_button.config(state="disabled")
-            self.disconnect_button.config(state="normal")
-            self.manual_connect_button.config(state="disabled")
-            self.service_listbox.config(state="disabled")
+            # UI updates must be done in the main thread
+            self.root.after(0, lambda: self.status_label.config(text=f"Reconnected to {host}:{port} (Ctrl:{control_port}, Size:{self.stream_width}x{self.stream_height}, Format: {self.stream_format})"))
+            self.root.after(0, lambda: self.connect_button.config(state="disabled"))
+            self.root.after(0, lambda: self.disconnect_button.config(state="normal"))
+            self.root.after(0, lambda: self.manual_connect_button.config(state="disabled"))
+            self.root.after(0, lambda: self.service_listbox.config(state="disabled"))
             self.save_last_ip(host)
-            self.create_stream_window()
+            self.root.after(0, self.create_stream_window)
             threading.Thread(target=self.receive_stream, daemon=True).start()
             if self.update_id:
-                try: self.root.after_cancel(self.update_id)
+                try:
+                    self.root.after(0, lambda: self.root.after_cancel(self.update_id))
                 except: pass
-            self.update_id = self.root.after(100, self.update_frame)
+            self.root.after(0, lambda: setattr(self, 'update_id', self.root.after(100, self.update_frame)))
             self.stop_reconnect_loop()
         except Exception as e:
             print(f"[Reconnect] Error connecting: {e}")
