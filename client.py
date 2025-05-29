@@ -156,13 +156,12 @@ class PyQtStreamWindow:
     def keyPressEvent(self, event):
         key = event.key()
         text = event.text()
-        native_vk = event.nativeVirtualKey()  # Use native VK code for Windows
         # If this is a modifier key, send only that modifier
         for mod_name, mod_code in self.MODIFIER_KEYS.items():
             if key == mod_code:
                 if not self.modifier_state[mod_name]:
                     self.modifier_state[mod_name] = True
-                    e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': native_vk})
+                    e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
                     self.on_key_event('key_press', e_mod)
                 return  # Only send the modifier event
         # Numpad number detection
@@ -175,19 +174,18 @@ class PyQtStreamWindow:
         else:
             keysym = self.QT_TO_TK_KEYSYM.get(key, str(key))
             char = text
-        e = type('Event', (), {'keysym': keysym, 'char': char, 'keycode': native_vk})
+        e = type('Event', (), {'keysym': keysym, 'char': char, 'keycode': key})
         self.on_key_event('key_press', e)
 
     def keyReleaseEvent(self, event):
         key = event.key()
         text = event.text()
-        native_vk = event.nativeVirtualKey()  # Use native VK code for Windows
         # If this is a modifier key, send only that modifier
         for mod_name, mod_code in self.MODIFIER_KEYS.items():
             if key == mod_code:
                 if self.modifier_state[mod_name]:
                     self.modifier_state[mod_name] = False
-                    e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': native_vk})
+                    e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
                     self.on_key_event('key_release', e_mod)
                 return  # Only send the modifier event
         # Numpad number detection
@@ -200,7 +198,7 @@ class PyQtStreamWindow:
         else:
             keysym = self.QT_TO_TK_KEYSYM.get(key, str(key))
             char = text
-        e = type('Event', (), {'keysym': keysym, 'char': char, 'keycode': native_vk})
+        e = type('Event', (), {'keysym': keysym, 'char': char, 'keycode': key})
         self.on_key_event('key_release', e)
 
     def closeEvent(self, event):
