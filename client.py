@@ -126,14 +126,14 @@ class PyQtStreamWindow:
     def keyPressEvent(self, event):
         keycode = event.nativeVirtualKey()
         char = event.text()
-        print(f"[PyQt keyPressEvent] type=key_press keycode={keycode} char='{char}'")
+        # print(f"[PyQt keyPressEvent] type=key_press keycode={keycode} char='{char}'")
         e = type('Event', (), {'keycode': keycode, 'char': char})
         self.on_key_event('key_press', e)
 
     def keyReleaseEvent(self, event):
         keycode = event.nativeVirtualKey()
         char = event.text()
-        print(f"[PyQt keyReleaseEvent] type=key_release keycode={keycode} char='{char}'")
+        # print(f"[PyQt keyReleaseEvent] type=key_release keycode={keycode} char='{char}'")
         e = type('Event', (), {'keycode': keycode, 'char': char})
         self.on_key_event('key_release', e)
 
@@ -423,9 +423,10 @@ class ScreenShareClient:
             self.pyqt_window.window.activateWindow()
             self.pyqt_window.window.raise_()
             self.pyqt_window.window.setFocus()
-            print("[create_stream_window] PyQt window shown and focused")
+            # print("[create_stream_window] PyQt window shown and focused")
         except Exception as e:
-            print(f"[create_stream_window] Exception focusing PyQt window: {e}")
+            # print(f"[create_stream_window] Exception focusing PyQt window: {e}")
+            pass
         
     def send_key_event(self, event_type, event):
         """Formats and sends key event data over the control socket."""
@@ -439,10 +440,11 @@ class ScreenShareClient:
                 message = json.dumps(key_data).encode('utf-8')
                 self.control_socket.sendall(message + b'\n') 
             except (socket.error, BrokenPipeError, ConnectionResetError) as e:
-                print(f"Control socket error sending key event: {e}")
+                # print(f"Control socket error sending key event: {e}")
                 self.root.after(0, lambda: self.status_label.config(text=f"Control connection error: {e}"))
             except Exception as e:
-                 print(f"Unexpected error sending key event: {e}")
+                 # print(f"Unexpected error sending key event: {e}")
+                 pass
 
     def connect_to_selected_host(self):
         """Connect to the host selected in the discovery listbox."""
@@ -788,15 +790,15 @@ class ScreenShareClient:
     def receive_stream(self):
         frame_count = 0 # Simple frame counter for logging
         log_interval = 100
-        print("[Stream Thread] Started successfully")
+        # print("[Stream Thread] Started successfully")
         try:
             while self.running and self.stream_socket:
                 try:
-                    print(f"[Stream] Waiting for frame size... running={self.running}, socket id={id(self.stream_socket)}")
+                    # print(f"[Stream] Waiting for frame size... running={self.running}, socket id={id(self.stream_socket)}")
                     size_data = self.stream_socket.recv(4)
-                    print(f"[Stream] Received size_data: {size_data} (len={len(size_data) if size_data else 0})")
+                    # print(f"[Stream] Received size_data: {size_data} (len={len(size_data) if size_data else 0})")
                     if not size_data:
-                        print("[Stream Thread] Connection closed (no size_data)")
+                        # print("[Stream Thread] Connection closed (no size_data)")
                         break
                     size = struct.unpack('!I', size_data)[0]
                     if size <= 0 or size > 10*1024*1024:
@@ -807,10 +809,10 @@ class ScreenShareClient:
                     while len(data) < size:
                         packet = self.stream_socket.recv(size - len(data))
                         if not packet:
-                            print("[Stream] Connection closed while receiving frame data")
+                            # print("[Stream] Connection closed while receiving frame data")
                             break
                         data += packet
-                    print(f"[Stream] Received frame data: {len(data)} bytes (expected {size})")
+                    # print(f"[Stream] Received frame data: {len(data)} bytes (expected {size})")
                     if len(data) != size:
                         print(f"[Stream] Warning: Incomplete frame data received. Expected {size}, got {len(data)}")
                         break
@@ -872,8 +874,8 @@ class ScreenShareClient:
                         except Exception as q_e:
                             print(f"[Stream] Error managing full queue: {q_e}")
                             self.stats['frames_dropped'] += 1
-                    if frame_count % log_interval == 0:
-                        print(f"[Stream] Received {frame_count} frames, Queue: {queue_size}/{queue_capacity} ({queue_fullness:.0%})")
+                    # if frame_count % log_interval == 0:
+                    #     print(f"[Stream] Received {frame_count} frames, Queue: {queue_size}/{queue_capacity} ({queue_fullness:.0%})")
                 except Exception as e:
                     import traceback
                     print(f"[Stream] Error: {e}")
@@ -901,11 +903,13 @@ class ScreenShareClient:
         if self.update_id:
             try:
                 self.root.after_cancel(self.update_id)
-                print("Cancelled pending UI update.")
+                # print("Cancelled pending UI update.")
             except tk.TclError:
-                print("Warning: TclError cancelling UI update (already cancelled/destroyed?).")
+                # print("Warning: TclError cancelling UI update (already cancelled/destroyed?).")
+                pass
             except Exception as e:
-                 print(f"Error cancelling UI update: {e}")
+                 # print(f"Error cancelling UI update: {e}")
+                 pass
             self.update_id = None
         # --- End Cancel --- 
         self.running = False
@@ -919,7 +923,7 @@ class ScreenShareClient:
             try:
                 self.control_socket.close()
             except Exception as e:
-                print(f"Error closing control server socket in stop(): {e}")
+                # print(f"Error closing control server socket in stop(): {e}")
                 pass
         self.zeroconf.close()
         # --- Close PyQt window if open ---
@@ -1150,19 +1154,20 @@ class ScreenShareClient:
 if __name__ == "__main__":
     client = None # Initialize client to None
     try:
-        print("Creating ScreenShareClient...")
+        # print("Creating ScreenShareClient...")
         client = ScreenShareClient()
-        print("Starting client...")
+        # print("Starting client...")
         client.start()
     except KeyboardInterrupt:
-        print("\nKeyboardInterrupt detected...")
+        # print("\nKeyboardInterrupt detected...")
+        pass
     except Exception as e:
-        print(f"Unhandled error in main execution: {e}")
+        # print(f"Unhandled error in main execution: {e}")
         import traceback
         traceback.print_exc() # Print detailed traceback for unexpected errors
     finally:
-        print("Application exit sequence starting...")
+        # print("Application exit sequence starting...")
         if client and client.running:
-             print("Performing final cleanup via on_closing...")
+             # print("Performing final cleanup via on_closing...")
              client.on_closing() # Ensure cleanup happens if start() exited prematurely
         print("Exiting application.")

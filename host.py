@@ -255,7 +255,7 @@ def get_sim_key(keycode, char):
         return ' '
     # Priority 4: Unmapped
     else:
-        print(f"[Control] Warning: Unmapped key event: keycode={keycode}, char='{char}'")
+        # print(f"[Control] Warning: Unmapped key event: keycode={keycode}, char='{char}'")
         return None
 
 def kill_process_on_port(port):
@@ -896,9 +896,10 @@ class ScreenShareHost:
                 # --- SET TCP_NODELAY --- 
                 try:
                     control_client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    print(f"[*] Set TCP_NODELAY for control client {addr}")
+                    # print(f"[*] Set TCP_NODELAY for control client {addr}")
                 except Exception as nodelay_e:
-                    print(f"[Warning] Could not set TCP_NODELAY for {addr}: {nodelay_e}")
+                    # print(f"[Warning] Could not set TCP_NODELAY for {addr}: {nodelay_e}")
+                    pass
                 # --- END SET ---
                 thread = threading.Thread(target=self.handle_control_client, args=(control_client_socket, addr), daemon=True)
                 self.control_threads.append(thread)
@@ -915,7 +916,7 @@ class ScreenShareHost:
 
     def handle_control_client(self, client_socket, addr):
         """Handles incoming control messages (keyboard/mouse) from a client."""
-        print(f"[*] Handling control client {addr}")
+        # print(f"[*] Handling control client {addr}")
         buffer = ""
         try:
             while self.running:
@@ -923,7 +924,7 @@ class ScreenShareHost:
                     # Receive data in chunks
                     data = client_socket.recv(1024)
                     if not data:
-                        print(f"[*] Control client {addr} disconnected (no data).")
+                        # print(f"[*] Control client {addr} disconnected (no data).")
                         break
                         
                     buffer += data.decode('utf-8')
@@ -941,13 +942,14 @@ class ScreenShareHost:
                             
                             if sim_key is not None:
                                 if event_type == 'key_press':
-                                    print(f"[Control {addr}] Simulating PRESS: {sim_key} (keycode={keycode}, char='{char}')")
+                                    # print(f"[Control {addr}] Simulating PRESS: {sim_key} (keycode={keycode}, char='{char}')")
                                     self.keyboard_controller.press(sim_key)
                                 elif event_type == 'key_release':
-                                    print(f"[Control {addr}] Simulating RELEASE: {sim_key} (keycode={keycode}, char='{char}')")
+                                    # print(f"[Control {addr}] Simulating RELEASE: {sim_key} (keycode={keycode}, char='{char}')")
                                     self.keyboard_controller.release(sim_key)
                                 else:
-                                    print(f"[Control Warning] Unknown event type: {event_type}")
+                                    # print(f"[Control Warning] Unknown event type: {event_type}")
+                                    pass
                             else:
                                 # Already warned in get_sim_key
                                 pass
@@ -959,12 +961,11 @@ class ScreenShareHost:
                             # Optionally print traceback
                             # import traceback
                             # traceback.print_exc()
-                            
                 except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
-                    print(f"[*] Control client {addr} connection error.")
+                    # print(f"[*] Control client {addr} connection error.")
                     break
                 except UnicodeDecodeError:
-                     print(f"[Control ERROR {addr}] Received non-UTF8 data.")
+                     # print(f"[Control ERROR {addr}] Received non-UTF8 data.")
                      # Clear buffer maybe?
                      buffer = ""
                      continue # Try to recover?
@@ -999,15 +1000,14 @@ class ScreenShareHost:
         if current_fidelity == "PNG":
             encode_format = '.png'
             encode_params = [] # No quality setting for PNG
-            print(f"[*] Using PNG encoding for {addr}")
+            # print(f"[*] Using PNG encoding for {addr}")
         else: # Default to JPEG
             encode_format = '.jpg'
             encode_params = [cv2.IMWRITE_JPEG_QUALITY, 95] # Keep high quality JPEG
-            print(f"[*] Using JPEG encoding for {addr}")
+            # print(f"[*] Using JPEG encoding for {addr}")
         
         try:
-            print(f"Starting client handler for {addr} with size {current_width}x{current_height} @ {current_fps} FPS, Fidelity: {current_fidelity} (delay: {delay:.4f}s)")
-            
+            # print(f"Starting client handler for {addr} with size {current_width}x{current_height} @ {current_fps} FPS, Fidelity: {current_fidelity} (delay: {delay:.4f}s)")
             # --- Send Dimensions and Format First --- 
             try:
                 initial_info = {
@@ -1017,11 +1017,10 @@ class ScreenShareHost:
                 }
                 info_json = json.dumps(initial_info).encode('utf-8')
                 info_size = struct.pack('>I', len(info_json))
-                
-                print(f"[*] Sending initial info {initial_info} ({len(info_json)} bytes) to {addr}")
+                # print(f"[*] Sending initial info {initial_info} ({len(info_json)} bytes) to {addr}")
                 client_socket.sendall(info_size)
                 client_socket.sendall(info_json)
-                print(f"[*] Initial info sent successfully to {addr}")
+                # print(f"[*] Initial info sent successfully to {addr}")
             except (socket.error, ConnectionResetError, BrokenPipeError) as e:
                 print(f"[ERROR] Failed to send initial info to {addr}: {e}. Closing connection.")
                 client_socket.close()
@@ -1033,13 +1032,13 @@ class ScreenShareHost:
                  self.status_queue.put(f"client_disconnected:{addr}")
                  return
             # --- End Send Initial Info ---
-            
             # --- Set TCP_NODELAY for the stream socket --- 
             try:
                  client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                 print(f"[*] Set TCP_NODELAY for stream client {addr}")
+                 # print(f"[*] Set TCP_NODELAY for stream client {addr}")
             except Exception as nodelay_e:
-                 print(f"[Warning] Could not set TCP_NODELAY for stream {addr}: {nodelay_e}")
+                 # print(f"[Warning] Could not set TCP_NODELAY for stream {addr}: {nodelay_e}")
+                 pass
             # --- End Set TCP_NODELAY ---
             
             thread_sct = mss.mss()
