@@ -138,7 +138,7 @@ class PyQtStreamWindow:
         self.on_key_event('key_release', e)
 
     def closeEvent(self, event):
-        self.on_close()
+        self.on_close(user_initiated=False)
         event.accept()
 
     def focusInEvent(self, event):
@@ -388,7 +388,7 @@ class ScreenShareClient:
         controls_frame.pack(fill="x", padx=10, pady=5)
         
         # Remove duplicate connect button from here, only keep disconnect
-        self.disconnect_button = ttk.Button(controls_frame, text="Disconnect", command=self.stop, state="disabled")
+        self.disconnect_button = ttk.Button(controls_frame, text="Disconnect", command=lambda: self.stop(user_initiated=True), state="disabled")
         self.disconnect_button.pack(side="left", padx=5)
         
         # Remove all Tkinter stream window logic
@@ -413,7 +413,7 @@ class ScreenShareClient:
             max(150, self.stream_width),
             max(30, self.stream_height),
             self.send_key_event,
-            self.stop,
+            lambda user_initiated=False: self.stop(user_initiated=user_initiated),
             image_queue=self.image_queue,
             client=self
         )
@@ -892,10 +892,11 @@ class ScreenShareClient:
             if self.root and self.root.winfo_exists():
                 self.root.after(0, self.handle_stream_disconnect)
 
-    def stop(self):
+    def stop(self, user_initiated=True):
         print("Stopping client...")
         traceback.print_stack()
-        self.user_initiated_disconnect = True  # Only set here for manual disconnect
+        if user_initiated:
+            self.user_initiated_disconnect = True  # Only set here for manual disconnect
         # --- Cancel pending update --- 
         if self.update_id:
             try:
@@ -958,57 +959,7 @@ class ScreenShareClient:
     def on_closing(self):
         """Handle window closing"""
         print("Closing application initiated...")
-        self.user_initiated_disconnect = True  # Only set here for window close
-        if self.update_id:
-            try:
-                self.root.after_cancel(self.update_id)
-                print("Cancelled pending UI update on closing.")
-            except tk.TclError: pass
-            except Exception as e:
-                 print(f"Error cancelling UI update on closing: {e}")
-            self.update_id = None
-        self.running = False 
-        try:
-            while not self.image_queue.empty():
-                try:
-                    self.image_queue.get_nowait()
-                except:
-                    break
-            print("Cleared image queue")
-        except:
-            pass
-        if hasattr(self, 'temp_dir') and USE_FILE_BASED_IMAGES:
-            try:
-                import shutil
-                shutil.rmtree(self.temp_dir)
-                print(f"Cleaned up temporary directory: {self.temp_dir}")
-            except Exception as e:
-                print(f"Error cleaning temporary directory: {e}")
-        try:
-            if self.root.winfo_exists():
-                self.status_label.config(text="Status: Closing...")
-        except tk.TclError:
-            print("Warning: Could not update status label during closing.")
-        self.cleanup()
-        if hasattr(self, '_update_frame_after_id'):
-            self.root.after_cancel(self._update_frame_after_id)
-        print("Destroying windows...")
-        try:
-            if self.stream_window and self.stream_window.winfo_exists():
-                if hasattr(self, 'stream_label') and self.stream_label and self.stream_label.winfo_exists():
-                    self.stream_label.image = None
-                self.tk_image = None
-                self.stream_window.destroy()
-        except tk.TclError:
-            pass
-        # --- Close PyQt window if open ---
-        if self.pyqt_window:
-            self.root.after(0, lambda: self._safe_close_pyqt_window())
-        try:
-            if self.root.winfo_exists():
-                self.root.destroy()
-        except tk.TclError:
-            pass
+        self.stop(user_initiated=True)
 
     def cleanup(self):
         """Cleanup non-Tkinter resources"""
