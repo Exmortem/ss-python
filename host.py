@@ -173,23 +173,72 @@ KEYCODE_MAP = {
     103: keyboard.KeyCode.from_vk(103), # Numpad 7
     104: keyboard.KeyCode.from_vk(104), # Numpad 8
     105: keyboard.KeyCode.from_vk(105), # Numpad 9
-    
     # Numpad Operators (VK codes)
     106: keyboard.KeyCode.from_vk(106), # Numpad * (Multiply)
     107: keyboard.KeyCode.from_vk(107), # Numpad + (Add)
-    # Separator (VK 108) - often handled differently, might not map well
     109: keyboard.KeyCode.from_vk(109), # Numpad - (Subtract)
     110: keyboard.KeyCode.from_vk(110), # Numpad . (Decimal)
     111: keyboard.KeyCode.from_vk(111), # Numpad / (Divide)
-    
     # Modifier keys
-    17: keyboard.Key.ctrl_l,  # VK_CONTROL
     16: keyboard.Key.shift_l, # VK_SHIFT
+    17: keyboard.Key.ctrl_l,  # VK_CONTROL
     18: keyboard.Key.alt_l,   # VK_MENU (Alt)
-    # Add right-side modifiers if needed:
-    # 163: keyboard.Key.ctrl_r, # VK_RCONTROL
-    # 161: keyboard.Key.shift_r, # VK_RSHIFT
-    # 165: keyboard.Key.alt_r,   # VK_RMENU
+    161: keyboard.Key.shift_r, # VK_RSHIFT
+    163: keyboard.Key.ctrl_r,  # VK_RCONTROL
+    165: keyboard.Key.alt_r,   # VK_RMENU
+    # Function keys
+    112: keyboard.Key.f1,
+    113: keyboard.Key.f2,
+    114: keyboard.Key.f3,
+    115: keyboard.Key.f4,
+    116: keyboard.Key.f5,
+    117: keyboard.Key.f6,
+    118: keyboard.Key.f7,
+    119: keyboard.Key.f8,
+    120: keyboard.Key.f9,
+    121: keyboard.Key.f10,
+    122: keyboard.Key.f11,
+    123: keyboard.Key.f12,
+    124: keyboard.Key.f13,
+    125: keyboard.Key.f14,
+    126: keyboard.Key.f15,
+    127: keyboard.Key.f16,
+    128: keyboard.Key.f17,
+    129: keyboard.Key.f18,
+    130: keyboard.Key.f19,
+    131: keyboard.Key.f20,
+    132: keyboard.Key.f21,
+    133: keyboard.Key.f22,
+    134: keyboard.Key.f23,
+    135: keyboard.Key.f24,
+    # Navigation keys
+    33: keyboard.Key.page_up,    # VK_PRIOR
+    34: keyboard.Key.page_down,  # VK_NEXT
+    35: keyboard.Key.end,        # VK_END
+    36: keyboard.Key.home,       # VK_HOME
+    37: keyboard.Key.left,       # VK_LEFT
+    38: keyboard.Key.up,         # VK_UP
+    39: keyboard.Key.right,      # VK_RIGHT
+    40: keyboard.Key.down,       # VK_DOWN
+    # Editing keys
+    8: keyboard.Key.backspace,   # VK_BACK
+    9: keyboard.Key.tab,         # VK_TAB
+    13: keyboard.Key.enter,      # VK_RETURN
+    20: keyboard.Key.caps_lock,  # VK_CAPITAL
+    27: keyboard.Key.esc,        # VK_ESCAPE
+    32: keyboard.Key.space,      # VK_SPACE
+    45: keyboard.Key.insert,     # VK_INSERT
+    46: keyboard.Key.delete,     # VK_DELETE
+    # Lock keys
+    144: keyboard.Key.num_lock,  # VK_NUMLOCK
+    145: keyboard.Key.scroll_lock, # VK_SCROLL
+    # Print/Break
+    44: keyboard.Key.print_screen, # VK_SNAPSHOT
+    19: keyboard.Key.pause,      # VK_PAUSE
+    # Menu/Windows
+    91: keyboard.Key.cmd_l,      # VK_LWIN
+    92: keyboard.Key.cmd_r,      # VK_RWIN
+    93: keyboard.Key.menu,       # VK_APPS
 }
 # --- END NEW --- 
 
