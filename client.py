@@ -28,15 +28,13 @@ FORCE_ALTERNATIVE_RENDERING = True
 USE_DIRECT_UPDATE = False
 
 class PyQtStreamWindow:
-    def __init__(self, width, height, on_key_event, on_close, image_queue=None, client=None):
+    def __init__(self, width, height, on_key_event, on_close):
         from PyQt5 import QtWidgets, QtGui, QtCore
         self.QtWidgets = QtWidgets
         self.QtGui = QtGui
         self.QtCore = QtCore
         self.on_key_event = on_key_event
         self.on_close = on_close
-        self.image_queue = image_queue
-        self.client = client
         self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         self.window = QtWidgets.QWidget()
         self.window.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint)
@@ -52,27 +50,9 @@ class PyQtStreamWindow:
         self.window.show()
         self.window.activateWindow()
         self.window.raise_()
-        # QTimer for high-frequency updates
-        self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.update_from_queue)
-        self.timer.start(10)  # 10 ms = 100 FPS
-
-    def set_queue(self, image_queue, client):
-        self.image_queue = image_queue
-        self.client = client
-
-    def update_from_queue(self):
-        if self.image_queue and not self.image_queue.empty():
-            try:
-                latest_img = self.image_queue.get_nowait()
-                self.update_image(latest_img)
-                if self.client:
-                    self.client.stats['frames_displayed'] += 1
-                    self.client.stats['interval_frames_displayed'] += 1
-            except Exception:
-                pass
 
     def update_image(self, pil_image):
+        # Convert PIL image to QImage
         import numpy as np
         if pil_image.mode != 'RGB':
             pil_image = pil_image.convert('RGB')
@@ -86,6 +66,7 @@ class PyQtStreamWindow:
     def keyPressEvent(self, event):
         key = event.key()
         text = event.text()
+        # Qt key to Tkinter-like event
         e = type('Event', (), {'keysym': str(key), 'char': text, 'keycode': key})
         self.on_key_event('key_press', e)
 
@@ -101,8 +82,6 @@ class PyQtStreamWindow:
 
     def close(self):
         self.window.close()
-        if hasattr(self, 'timer'):
-            self.timer.stop()
 
 class ScreenShareClient:
     def __init__(self):
@@ -375,9 +354,7 @@ class ScreenShareClient:
                 max(150, self.stream_width),
                 max(30, self.stream_height),
                 self.send_key_event,
-                self.stop,
-                image_queue=self.image_queue,
-                client=self
+                self.stop
             )
         else:
             # Original Tkinter logic
@@ -726,6 +703,7 @@ class ScreenShareClient:
         current_time = time.time()
         if current_time - self.stats_last_update >= self.stats_update_interval:
             self.update_statistics()
+
         # --- Handle window existence check for both window types ---
         if self.stream_window_type == 'tkinter':
             if not self.connected or self.stream_window is None or not self.stream_window.winfo_exists():
@@ -737,22 +715,7 @@ class ScreenShareClient:
             if not self.connected or self.pyqt_window is None:
                 self.update_id = None
                 return
-        # For PyQt, skip frame display logic (handled by QTimer)
-        if self.stream_window_type == 'pyqt':
-            # Only update stats and reschedule
-            if self.running:
-                try:
-                    if self.update_id:
-                        try:
-                            self.root.after_cancel(self.update_id)
-                        except:
-                            pass
-                    self.update_id = self.root.after(10, self.update_frame)
-                except Exception as sched_e:
-                    print(f"[Debug] Error scheduling next frame: {sched_e}")
-            else:
-                self.update_id = None
-            return
+
         try:
             # Process timing
             process_start_time = time.time()
@@ -1144,12 +1107,6 @@ class ScreenShareClient:
             if self.running: # Check if still running (e.g., mainloop crashed)
                print("Main loop exited unexpectedly, ensuring cleanup...")
                self.on_closing() # Call the proper closing sequence
-        elif self:
-             print("Cleanup likely already performed by on_closing.")
-        else:
-             print("Client object not created.")
-        print("Exiting application.")
-        # sys.exit(0) # Removed force exit, let Python exit normally after cleanup
 
     def on_service_select(self, event=None):
         """Handle selection change in the service listbox."""
