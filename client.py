@@ -406,7 +406,12 @@ class ScreenShareClient:
     def create_stream_window(self):
         # Always close the old PyQt window and create a new image queue
         if self.pyqt_window:
-            self.pyqt_window.close()
+            try:
+                self.pyqt_window.close()
+                print("Closed old PyQt window before creating new one.")
+            except Exception as e:
+                print(f"Error closing old PyQt window: {e}")
+            self.pyqt_window = None
         self.image_queue = queue.Queue(maxsize=5)
         self.pyqt_window = PyQtStreamWindow(
             max(150, self.stream_width),
@@ -733,6 +738,14 @@ class ScreenShareClient:
         except Exception as e:
             print(f"Error closing control socket: {e}")
         self.control_socket = None
+        # Always close the PyQt window on disconnect
+        if self.pyqt_window:
+            try:
+                self.pyqt_window.close()
+                print("Closed PyQt window on disconnect.")
+            except Exception as e:
+                print(f"Error closing PyQt window on disconnect: {e}")
+            self.pyqt_window = None
         # Clear image queue
         if hasattr(self, 'image_queue') and self.image_queue:
             try:
@@ -747,6 +760,14 @@ class ScreenShareClient:
     def handle_stream_disconnect(self):
         """Handle logic after the stream thread exits and sockets are closed."""
         print("[handle_stream_disconnect] Handling post-disconnect logic.")
+        # Always close the PyQt window on disconnect (extra safety)
+        if self.pyqt_window:
+            try:
+                self.pyqt_window.close()
+                print("Closed PyQt window on disconnect (handle_stream_disconnect).")
+            except Exception as e:
+                print(f"Error closing PyQt window on disconnect (handle_stream_disconnect): {e}")
+            self.pyqt_window = None
         if not self.user_initiated_disconnect:
             # If last stream processed 0 frames, wait longer before reconnecting
             if hasattr(self, 'last_stream_frame_count') and self.last_stream_frame_count == 0:
