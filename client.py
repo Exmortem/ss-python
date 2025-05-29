@@ -13,7 +13,6 @@ import queue
 import sys
 import struct # Added for unpacking size
 import tempfile  # For temporary file-based image handling
-import importlib
 
 # Control Port offset
 CONTROL_PORT_OFFSET = 1
@@ -26,62 +25,6 @@ USE_FILE_BASED_IMAGES = False
 FORCE_ALTERNATIVE_RENDERING = True
 # -- Add direct update flag --
 USE_DIRECT_UPDATE = False
-
-class PyQtStreamWindow:
-    def __init__(self, width, height, on_key_event, on_close):
-        from PyQt5 import QtWidgets, QtGui, QtCore
-        self.QtWidgets = QtWidgets
-        self.QtGui = QtGui
-        self.QtCore = QtCore
-        self.on_key_event = on_key_event
-        self.on_close = on_close
-        self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-        self.window = QtWidgets.QWidget()
-        self.window.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint)
-        self.window.setGeometry(0, 0, width, height)
-        self.window.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
-        self.window.setFocusPolicy(QtCore.Qt.StrongFocus)
-        self.label = QtWidgets.QLabel(self.window)
-        self.label.setGeometry(0, 0, width, height)
-        self.label.setStyleSheet("background-color: black;")
-        self.window.keyPressEvent = self.keyPressEvent
-        self.window.keyReleaseEvent = self.keyReleaseEvent
-        self.window.closeEvent = self.closeEvent
-        self.window.show()
-        self.window.activateWindow()
-        self.window.raise_()
-
-    def update_image(self, pil_image):
-        # Convert PIL image to QImage
-        import numpy as np
-        if pil_image.mode != 'RGB':
-            pil_image = pil_image.convert('RGB')
-        arr = np.array(pil_image)
-        h, w, ch = arr.shape
-        bytes_per_line = ch * w
-        qimg = self.QtGui.QImage(arr.data, w, h, bytes_per_line, self.QtGui.QImage.Format_RGB888)
-        pixmap = self.QtGui.QPixmap.fromImage(qimg)
-        self.label.setPixmap(pixmap)
-
-    def keyPressEvent(self, event):
-        key = event.key()
-        text = event.text()
-        # Qt key to Tkinter-like event
-        e = type('Event', (), {'keysym': str(key), 'char': text, 'keycode': key})
-        self.on_key_event('key_press', e)
-
-    def keyReleaseEvent(self, event):
-        key = event.key()
-        text = event.text()
-        e = type('Event', (), {'keysym': str(key), 'char': text, 'keycode': key})
-        self.on_key_event('key_release', e)
-
-    def closeEvent(self, event):
-        self.on_close()
-        event.accept()
-
-    def close(self):
-        self.window.close()
 
 class ScreenShareClient:
     def __init__(self):
@@ -113,8 +56,6 @@ class ScreenShareClient:
         self.tk_image = None # Keep reference to PhotoImage
         self.canvas_image_item = None # ID of the image item on canvas
         self.display_method = "label"  # Always use label for simpler compatibility
-        self.stream_window_type = self.load_stream_window_type()  # 'tkinter' or 'pyqt'
-        self.pyqt_window = None
         
         # --- Create temp directory for file-based display if needed ---
         if USE_FILE_BASED_IMAGES:
@@ -221,21 +162,8 @@ class ScreenShareClient:
     def setup_ui(self):
         # --- Configure Root Window (already created in __init__) --- 
         self.root.title("Screen Share Client Controls")
-        # --- Stream Window Type Selector ---
-        window_type_frame = ttk.Frame(self.root)
-        window_type_frame.pack(fill="x", padx=10, pady=(10, 0))
-        ttk.Label(window_type_frame, text="Stream Window Type:").pack(side="left", padx=(0, 5))
-        self.window_type_var = tk.StringVar(value=self.stream_window_type)
-        window_type_menu = ttk.OptionMenu(
-            window_type_frame,
-            self.window_type_var,
-            self.stream_window_type,
-            'tkinter',
-            'pyqt',
-            command=self._on_window_type_change
-        )
-        window_type_menu.pack(side="left")
-        # --- End Stream Window Type Selector ---
+        # self.root.geometry(...) # Set geometry if needed
+        # --- End Configure --- 
         
         # --- Discovery Frame (Using Listbox) --- 
         discovery_frame = ttk.LabelFrame(self.root, text="Discovered Hosts", padding="10")
@@ -347,70 +275,100 @@ class ScreenShareClient:
         # --- End Call --- 
         
     def create_stream_window(self):
-        if self.stream_window_type == 'pyqt':
-            if self.pyqt_window:
-                self.pyqt_window.close()
-            self.pyqt_window = PyQtStreamWindow(
-                max(150, self.stream_width),
-                max(30, self.stream_height),
-                self.send_key_event,
-                self.stop
-            )
-        else:
-            # Original Tkinter logic
-            if self.stream_window and self.stream_window.winfo_exists():
-                self.stream_window.deiconify() 
-                print("[Debug] Reusing existing stream window")
-                return
+        """Create the stream window."""
+        # If window already exists and is valid, just show it
+        if self.stream_window and self.stream_window.winfo_exists():
+            self.stream_window.deiconify() 
+            print("[Debug] Reusing existing stream window")
+            return
+            
+        # Create a new window
+        try:
+            print("[Debug] Creating new stream window")
+            self.stream_window = tk.Toplevel()
+            self.stream_window.title("Screen Share Stream")
+            
+            # Set up window dimensions - always ensure minimum size
+            display_width = max(150, self.stream_width)
+            display_height = max(30, self.stream_height)
+            
+            print(f"[Debug] Stream dimensions from host: width={self.stream_width}, height={self.stream_height}")
+            print(f"[Debug] Using display dimensions: {display_width}x{display_height}")
+            
+            # Create display frame in specific order for better compatibility
+            display_frame = tk.Frame(self.stream_window, bg='black', width=display_width, height=display_height)
+            display_frame.pack(fill="both", expand=True)
+            
+            # Force the frame to keep dimensions
+            display_frame.pack_propagate(False)
+            
+            # Use label for display with explicit dimensions
+            self.stream_label = tk.Label(display_frame, bg='black', width=display_width, height=display_height)
+            self.stream_label.pack(fill="both", expand=True)
+            
+            # Set initial image to black background
             try:
-                print("[Debug] Creating new stream window")
-                self.stream_window = tk.Toplevel()
-                self.stream_window.title("Screen Share Stream")
-                display_width = max(150, self.stream_width)
-                display_height = max(30, self.stream_height)
-                print(f"[Debug] Stream dimensions from host: width={self.stream_width}, height={self.stream_height}")
-                print(f"[Debug] Using display dimensions: {display_width}x{display_height}")
-                display_frame = tk.Frame(self.stream_window, bg='black', width=display_width, height=display_height)
-                display_frame.pack(fill="both", expand=True)
-                display_frame.pack_propagate(False)
-                self.stream_label = tk.Label(display_frame, bg='black', width=display_width, height=display_height)
-                self.stream_label.pack(fill="both", expand=True)
-                try:
-                    black_img = Image.new('RGB', (display_width, display_height), color='black')
-                    self.tk_image = ImageTk.PhotoImage(image=black_img)
-                    self.stream_label.config(image=self.tk_image)
-                    self.stream_label.image = self.tk_image
-                    print("[Debug] Set initial black image for the stream window")
-                except Exception as img_e:
-                    print(f"[Debug] Error creating initial black image: {img_e}")
-                geometry_string = f"{display_width}x{display_height}+0+0"
-                print(f"[Debug] Setting stream window geometry: {geometry_string}")
+                # Create a black image for initial display
+                black_img = Image.new('RGB', (display_width, display_height), color='black')
+                self.tk_image = ImageTk.PhotoImage(image=black_img)
+                self.stream_label.config(image=self.tk_image)
+                self.stream_label.image = self.tk_image
+                print("[Debug] Set initial black image for the stream window")
+            except Exception as img_e:
+                print(f"[Debug] Error creating initial black image: {img_e}")
+            
+            # Set geometry after creating content to avoid size issues
+            geometry_string = f"{display_width}x{display_height}+0+0"
+            print(f"[Debug] Setting stream window geometry: {geometry_string}")
+            self.stream_window.geometry(geometry_string)
+            
+            # Update the window before setting attributes
+            self.stream_window.update_idletasks()
+            
+            # Set various window attributes
+            self.stream_window.attributes('-topmost', True)
+            
+            # Always disable resize ability
+            self.stream_window.resizable(False, False)
+            
+            # Remove window decorations - needed for all versions
+            self.stream_window.overrideredirect(True)
+            
+            # Add close button
+            close_button_x = max(0, display_width - 30)
+            close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
+            close_button.place(x=close_button_x, y=5)
+            
+            # Bind keys
+            self.stream_window.bind("<KeyPress>", self.on_key_press)
+            self.stream_window.bind("<KeyRelease>", self.on_key_release)
+            
+            # Make sure window has focus
+            self.stream_window.focus_set()
+            
+            # Make window visible (ensure it's at the front)
+            self.stream_window.deiconify()
+            self.stream_window.lift()
+            
+            # Update the window to ensure it's fully drawn
+            self.stream_window.update()
+            
+            # Verify the window is displayed with the correct size
+            actual_width = self.stream_window.winfo_width()
+            actual_height = self.stream_window.winfo_height()
+            print(f"[Debug] Stream window created with dimensions: {actual_width}x{actual_height}")
+            
+            # Force another geometry update if needed
+            if actual_width <= 1 or actual_height <= 1:
+                print("[Debug] Window dimensions are invalid, forcing update")
                 self.stream_window.geometry(geometry_string)
                 self.stream_window.update_idletasks()
-                self.stream_window.attributes('-topmost', True)
-                self.stream_window.resizable(False, False)
-                self.stream_window.overrideredirect(True)
-                close_button_x = max(0, display_width - 30)
-                close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
-                close_button.place(x=close_button_x, y=5)
-                self.stream_window.bind("<KeyPress>", self.on_key_press)
-                self.stream_window.bind("<KeyRelease>", self.on_key_release)
-                self.stream_window.focus_set()
-                self.stream_window.deiconify()
-                self.stream_window.lift()
-                self.stream_window.update()
-                actual_width = self.stream_window.winfo_width()
-                actual_height = self.stream_window.winfo_height()
-                print(f"[Debug] Stream window created with dimensions: {actual_width}x{actual_height}")
-                if actual_width <= 1 or actual_height <= 1:
-                    print("[Debug] Window dimensions are invalid, forcing update")
-                    self.stream_window.geometry(geometry_string)
-                    self.stream_window.update_idletasks()
-                    print(f"[Debug] Updated dimensions: {self.stream_window.winfo_width()}x{self.stream_window.winfo_height()}")
-            except Exception as e:
-                print(f"[Debug] Error creating stream window: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"[Debug] Updated dimensions: {self.stream_window.winfo_width()}x{self.stream_window.winfo_height()}")
+        
+        except Exception as e:
+            print(f"[Debug] Error creating stream window: {e}")
+            import traceback
+            traceback.print_exc()
         
     def on_key_press(self, event):
         """Callback for key press events on the stream window."""
@@ -699,84 +657,146 @@ class ScreenShareClient:
         print("Sockets closed.")
         
     def update_frame(self):
+        """Update the display with the newest frame from the queue."""
         # Update stats regularly regardless of frame display
         current_time = time.time()
         if current_time - self.stats_last_update >= self.stats_update_interval:
             self.update_statistics()
-
-        # --- Handle window existence check for both window types ---
-        if self.stream_window_type == 'tkinter':
-            if not self.connected or self.stream_window is None or not self.stream_window.winfo_exists():
-                self.update_id = None
-                if self.connected:
-                    print("[Debug] Early exit from update_frame: stream_window missing")
-                return
-        else:  # pyqt
-            if not self.connected or self.pyqt_window is None:
-                self.update_id = None
-                return
-
+            
+        if not self.connected or self.stream_window is None or not self.stream_window.winfo_exists():
+            self.update_id = None
+            if self.connected:  # Only log if connected but window is missing
+                print("[Debug] Early exit from update_frame: stream_window missing")
+            return
+            
         try:
             # Process timing
             process_start_time = time.time()
+            
+            # Get queue status
             queue_size = self.image_queue.qsize()
+            
+            # Log queue size periodically for debugging
             if self._update_frame_count % 30 == 0:
                 print(f"[Debug] Queue status: {queue_size}/60 ({queue_size/60:.0%})")
             self._update_frame_count += 1
+            
+            # Get the most recent frame
             latest_img = None
             processed_count = 0
+            
+            # Get one frame at a time
             if not self.image_queue.empty():
                 try:
                     latest_img = self.image_queue.get_nowait()
                     processed_count = 1
+                    # Debug check image but only if there's an issue
                     if latest_img is None:
                         print("[Debug] Got None image from queue!")
                 except queue.Empty:
+                    # This shouldn't happen as we checked empty() but is not critical
                     pass
+                
+            # Update stats
             self.stats['frames_displayed'] += processed_count
             self.stats['interval_frames_displayed'] += processed_count
+                
+            # Display the frame
             if latest_img:
                 try:
-                    if self.stream_window_type == 'pyqt' and self.pyqt_window:
-                        self.pyqt_window.update_image(latest_img)
-                        # Process PyQt events to keep window responsive
-                        self.pyqt_window.app.processEvents()
+                    # Verify stream window and label exist
+                    if not (self.stream_window and self.stream_window.winfo_exists()):
+                        print("[Debug] Stream window doesn't exist when trying to update frame")
+                        if self.running:
+                            print("[Debug] Attempting to recreate stream window")
+                            self.create_stream_window()
+                        else:
+                            return
+                    
+                    # Verify stream label exists
+                    if not hasattr(self, 'stream_label') or not self.stream_label.winfo_exists():
+                        print("[Debug] Stream label doesn't exist, recreating")
+                        display_frame = tk.Frame(self.stream_window, bg='black')
+                        display_frame.pack(fill="both", expand=True)
+                        self.stream_label = tk.Label(display_frame, bg='black')
+                        self.stream_label.pack(fill="both", expand=True)
+                    
+                    # Convert if needed
+                    if latest_img.mode not in ['RGB', 'RGBA']:
+                        latest_img = latest_img.convert('RGB')
+                    
+                    # --- ALTERNATIVE RENDERING METHOD for computers with display issues ---
+                    if FORCE_ALTERNATIVE_RENDERING:
+                        if USE_FILE_BASED_IMAGES:
+                            # Method 1: File-based approach
+                            try:
+                                # Save the image to a temporary file
+                                latest_img.save(self.temp_img_path)
+                                # Load it back using a fresh PhotoImage
+                                self.tk_image = tk.PhotoImage(file=self.temp_img_path)
+                                self.stream_label.config(image=self.tk_image)
+                                self.stream_label.image = self.tk_image  # Keep reference
+                                # Periodically log success
+                                if self._update_frame_count % 60 == 0:
+                                    print(f"[Debug] File-based display update at frame {self._update_frame_count}")
+                            except Exception as file_e:
+                                print(f"[Debug] File-based display error: {file_e}")
+                        else:
+                            # Method 2: Direct bitmap update
+                            try:
+                                # First try the standard method
+                                self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                                # Force an update cycle before setting the image
+                                if USE_DIRECT_UPDATE and self._update_frame_count % 3 == 0:
+                                    self.stream_window.update_idletasks()
+                                self.stream_label.config(image=self.tk_image)
+                                # Keep reference to prevent garbage collection
+                                self.stream_label.image = self.tk_image
+                                # Explicitly force update (try to avoid black screen)
+                                if USE_DIRECT_UPDATE:
+                                    self.stream_label.update()
+                                # Periodically log success
+                                if self._update_frame_count % 60 == 0:
+                                    print(f"[Debug] Direct display update at frame {self._update_frame_count}")
+                            except Exception as direct_e:
+                                print(f"[Debug] Direct display error: {direct_e}")
                     else:
-                        # --- Existing Tkinter display logic ---
-                        if not (self.stream_window and self.stream_window.winfo_exists()):
-                            print("[Debug] Stream window doesn't exist when trying to update frame")
-                            if self.running:
-                                print("[Debug] Attempting to recreate stream window")
-                                self.create_stream_window()
-                            else:
-                                return
-                        if not hasattr(self, 'stream_label') or not self.stream_label.winfo_exists():
-                            print("[Debug] Stream label doesn't exist, recreating")
-                            display_frame = tk.Frame(self.stream_window, bg='black')
-                            display_frame.pack(fill="both", expand=True)
-                            self.stream_label = tk.Label(display_frame, bg='black')
-                            self.stream_label.pack(fill="both", expand=True)
-                        if latest_img.mode not in ['RGB', 'RGBA']:
-                            latest_img = latest_img.convert('RGB')
-                        self.tk_image = ImageTk.PhotoImage(image=latest_img)
-                        self.stream_label.config(image=self.tk_image)
-                        self.stream_label.image = self.tk_image
+                        # Regular approach
+                        try:
+                            self.tk_image = ImageTk.PhotoImage(image=latest_img)
+                            self.stream_label.config(image=self.tk_image)
+                            # Keep reference to prevent garbage collection
+                            self.stream_label.image = self.tk_image
+                        except Exception as img_e:
+                            print(f"[Debug] Error creating/displaying PhotoImage: {img_e}")
+                    
+                    # Performance timing
+                    process_end_time = time.time()
+                    process_time = process_end_time - process_start_time
+                    self.stats['processing_times'].append(process_time)
+                    if process_time > self.stats['max_processing_time']:
+                        self.stats['max_processing_time'] = process_time
+                    
                 except Exception as e:
                     print(f"[Debug] Display error: {e}")
                     import traceback
                     traceback.print_exc()
+                
         except Exception as e:
             print(f"[Debug] Update frame error: {e}")
             import traceback
             traceback.print_exc()
+        
         # Schedule next update - always use a small fixed delay for stability
         if self.running:
             try:
+                # Cancel any existing scheduled update to prevent duplicates
                 if self.update_id:
                     try:
                         self.root.after_cancel(self.update_id)
                     except:
                         pass
+                # Schedule the next update
                 self.update_id = self.root.after(10, self.update_frame)
             except Exception as sched_e:
                 print(f"[Debug] Error scheduling next frame: {sched_e}")
@@ -977,15 +997,10 @@ class ScreenShareClient:
                 print(f"Error closing control server socket in stop(): {e}")
                 pass
         self.zeroconf.close()
-        # --- Close PyQt window if open ---
-        if self.pyqt_window:
-            try:
-                self.pyqt_window.close()
-            except Exception as e:
-                print(f"Error closing PyQt window: {e}")
-            self.pyqt_window = None
+        
         # Reset performance statistics
         self.reset_statistics()
+        
         # Update UI in main thread
         self._update_ui_after_stop()
         
@@ -1017,15 +1032,20 @@ class ScreenShareClient:
     def on_closing(self):
         """Handle window closing"""
         print("Closing application initiated...")
+        # --- Cancel pending update --- 
         if self.update_id:
             try:
                 self.root.after_cancel(self.update_id)
                 print("Cancelled pending UI update on closing.")
-            except tk.TclError: pass
+            except tk.TclError: pass # Ignore if window already gone
             except Exception as e:
                  print(f"Error cancelling UI update on closing: {e}")
             self.update_id = None
+        # --- End Cancel --- 
+        
         self.running = False 
+        
+        # Clear any pending frames in the queue to release memory
         try:
             while not self.image_queue.empty():
                 try:
@@ -1035,6 +1055,8 @@ class ScreenShareClient:
             print("Cleared image queue")
         except:
             pass
+        
+        # Clean up temporary directory if using file-based approach
         if hasattr(self, 'temp_dir') and USE_FILE_BASED_IMAGES:
             try:
                 import shutil
@@ -1042,35 +1064,39 @@ class ScreenShareClient:
                 print(f"Cleaned up temporary directory: {self.temp_dir}")
             except Exception as e:
                 print(f"Error cleaning temporary directory: {e}")
+        
+        # Try to update status one last time before closing
         try:
             if self.root.winfo_exists():
                 self.status_label.config(text="Status: Closing...")
         except tk.TclError:
             print("Warning: Could not update status label during closing.")
+            
+        # Perform cleanup (sockets, zeroconf)
         self.cleanup()
+        
+        # Explicitly stop the frame update loop if it's still scheduled
+        # (Might not be strictly necessary due to self.running=False, but safer)
         if hasattr(self, '_update_frame_after_id'):
             self.root.after_cancel(self._update_frame_after_id)
+            
+        # Destroy windows (check existence first)
         print("Destroying windows...")
         try:
             if self.stream_window and self.stream_window.winfo_exists():
+                # Release image references before destroying window
                 if hasattr(self, 'stream_label') and self.stream_label and self.stream_label.winfo_exists():
                     self.stream_label.image = None
                 self.tk_image = None
                 self.stream_window.destroy()
         except tk.TclError:
-            pass
-        # --- Close PyQt window if open ---
-        if self.pyqt_window:
-            try:
-                self.pyqt_window.close()
-            except Exception as e:
-                print(f"Error closing PyQt window: {e}")
-            self.pyqt_window = None
+            pass # Ignore error if already destroyed
+            
         try:
             if self.root.winfo_exists():
                 self.root.destroy()
         except tk.TclError:
-            pass
+            pass # Ignore error if already destroyed
 
     def cleanup(self):
         """Cleanup non-Tkinter resources"""
@@ -1219,38 +1245,6 @@ class ScreenShareClient:
         except (tk.TclError, AttributeError) as e:
             # Ignore errors if UI elements don't exist yet or anymore
             pass
-
-    def load_stream_window_type(self):
-        # Load from config or default to 'tkinter'
-        try:
-            with open('client_config.json', 'r') as f:
-                cfg = json.load(f)
-                return cfg.get('stream_window_type', 'tkinter')
-        except Exception:
-            return 'tkinter'
-
-    def save_stream_window_type(self, window_type):
-        try:
-            with open('client_config.json', 'r') as f:
-                cfg = json.load(f)
-        except Exception:
-            cfg = {}
-        cfg['stream_window_type'] = window_type
-        with open('client_config.json', 'w') as f:
-            json.dump(cfg, f, indent=2)
-
-    # Add a method to allow user to select window type
-    def set_stream_window_type(self, window_type):
-        self.stream_window_type = window_type
-        self.save_stream_window_type(window_type)
-        print(f"[Config] Stream window type set to: {window_type}")
-        # Optionally recreate window if connected
-        if self.connected:
-            self.create_stream_window()
-
-    def _on_window_type_change(self, value):
-        self.set_stream_window_type(value)
-        self.window_type_var.set(self.stream_window_type)
 
 if __name__ == "__main__":
     client = None # Initialize client to None
