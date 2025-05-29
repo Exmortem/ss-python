@@ -182,8 +182,14 @@ KEYCODE_MAP = {
     110: keyboard.KeyCode.from_vk(110), # Numpad . (Decimal)
     111: keyboard.KeyCode.from_vk(111), # Numpad / (Divide)
     
-    # We can add more specific keycode mappings here if needed
-    # e.g., for KP_Enter if its keycode is distinct and needed
+    # Modifier keys
+    17: keyboard.Key.ctrl_l,  # VK_CONTROL
+    16: keyboard.Key.shift_l, # VK_SHIFT
+    18: keyboard.Key.alt_l,   # VK_MENU (Alt)
+    # Add right-side modifiers if needed:
+    # 163: keyboard.Key.ctrl_r, # VK_RCONTROL
+    # 161: keyboard.Key.shift_r, # VK_RSHIFT
+    # 165: keyboard.Key.alt_r,   # VK_RMENU
 }
 # --- END NEW --- 
 
