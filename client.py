@@ -164,11 +164,8 @@ class PyQtStreamWindow:
                     e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
                     self.on_key_event('key_press', e_mod)
                 return  # Only send the modifier event
-        # Numpad number detection
-        if (0x30 <= key <= 0x39) and (event.modifiers() & self.QtCore.Qt.KeypadModifier):
-            keysym = f'KP_{chr(key)}'
-            char = chr(key)
-        elif text and len(text) == 1 and 32 <= ord(text) <= 126:
+        # Otherwise, send the main key
+        if text and len(text) == 1 and 32 <= ord(text) <= 126:
             keysym = text
             char = text
         else:
@@ -188,11 +185,8 @@ class PyQtStreamWindow:
                     e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': mod_code})
                     self.on_key_event('key_release', e_mod)
                 return  # Only send the modifier event
-        # Numpad number detection
-        if (0x30 <= key <= 0x39) and (event.modifiers() & self.QtCore.Qt.KeypadModifier):
-            keysym = f'KP_{chr(key)}'
-            char = chr(key)
-        elif text and len(text) == 1 and 32 <= ord(text) <= 126:
+        # Otherwise, send the main key
+        if text and len(text) == 1 and 32 <= ord(text) <= 126:
             keysym = text
             char = text
         else:
