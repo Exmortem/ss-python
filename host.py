@@ -187,30 +187,21 @@ KEYCODE_MAP = {
 }
 # --- END NEW --- 
 
-def get_sim_key(keysym, char, keycode):
-    """Returns a tuple (sim_type, value) for simulating the key event."""
-    # Priority 1: Numpad numbers (KP_0..KP_9)
-    if keysym and keysym.startswith('KP_') and len(keysym) == 4 and keysym[3] in '0123456789':
-        num = keysym[3]
-        return ('keyboard', f'num {num}')
-    # Priority 2: Top-row numbers (0..9)
-    elif keysym and len(keysym) == 1 and keysym in '0123456789':
-        return ('keyboard', keysym)
-    # Priority 3: Use KEYCODE_MAP for other special keys
-    elif keycode in KEYCODE_MAP:
-        return ('pynput', KEYCODE_MAP[keycode])
-    # Priority 4: Use SPECIAL_KEYS for other special keys
-    elif keysym in SPECIAL_KEYS:
-        return ('pynput', SPECIAL_KEYS[keysym])
-    # Priority 5: Use char for printable characters
-    elif char and len(char) == 1 and keysym != 'space':
-        return ('pynput', char)
-    # Priority 6: Fallback: single-char keysym
-    elif keysym and len(keysym) == 1:
-        return ('pynput', keysym)
+def get_sim_key(keycode, char):
+    """Returns the key to simulate based on keycode and char."""
+    # Priority 1: Use KEYCODE_MAP for special keys (numpad, function, etc.)
+    if keycode in KEYCODE_MAP:
+        return KEYCODE_MAP[keycode]
+    # Priority 2: Use char for printable characters
+    elif char and len(char) == 1 and char != ' ':
+        return char
+    # Priority 3: Space
+    elif char == ' ':
+        return ' '
+    # Priority 4: Unmapped
     else:
-        print(f"[Control] Warning: Unmapped keysym: {keysym}, char: {char}, keycode: {keycode}")
-        return (None, None)
+        print(f"[Control] Warning: Unmapped key event: keycode={keycode}, char='{char}'")
+        return None
 
 def kill_process_on_port(port):
     """Kill any process using the specified port"""
@@ -888,28 +879,18 @@ class ScreenShareHost:
                         try:
                             key_data = json.loads(message)
                             event_type = key_data.get('type')
-                            keysym = key_data.get('keysym')
+                            keycode = key_data.get('keycode')
                             char = key_data.get('char')
-                            keycode = key_data.get('keycode') # Get keycode
                             
-                            # Use new get_sim_key function
-                            sim_type, sim_value = get_sim_key(keysym, char, keycode)
+                            sim_key = get_sim_key(keycode, char)
                             
-                            if sim_type == 'keyboard':
-                                # Use keyboard library for numpad/top-row numbers
+                            if sim_key is not None:
                                 if event_type == 'key_press':
-                                    print(f"[Control {addr}] Simulating PRESS: {sim_value} (keyboard lib) (From keysym: {keysym}, char: {char})")
-                                    keyboard_lib.press_and_release(sim_value)  # press_and_release for stateless simulation
+                                    print(f"[Control {addr}] Simulating PRESS: {sim_key} (keycode={keycode}, char='{char}')")
+                                    self.keyboard_controller.press(sim_key)
                                 elif event_type == 'key_release':
-                                    # keyboard lib does not distinguish press/release easily; skip or use send
-                                    pass
-                            elif sim_type == 'pynput' and sim_value is not None:
-                                if event_type == 'key_press':
-                                    print(f"[Control {addr}] Simulating PRESS: {sim_value} (pynput) (From keysym: {keysym}, char: {char})")
-                                    self.keyboard_controller.press(sim_value)
-                                elif event_type == 'key_release':
-                                    print(f"[Control {addr}] Simulating RELEASE: {sim_value} (pynput) (From keysym: {keysym}, char: {char})")
-                                    self.keyboard_controller.release(sim_value)
+                                    print(f"[Control {addr}] Simulating RELEASE: {sim_key} (keycode={keycode}, char='{char}')")
+                                    self.keyboard_controller.release(sim_key)
                                 else:
                                     print(f"[Control Warning] Unknown event type: {event_type}")
                             else:

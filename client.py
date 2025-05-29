@@ -28,43 +28,7 @@ FORCE_ALTERNATIVE_RENDERING = True
 USE_DIRECT_UPDATE = False
 
 class PyQtStreamWindow:
-    # Corrected mapping from Qt key codes to Tkinter-style keysyms (for modifiers and standard keys)
-    QT_TO_TK_KEYSYM = {
-        0x01000020: 'Shift_L',    # Qt.Key_Shift
-        0x01000021: 'Control_L',  # Qt.Key_Control
-        0x01000022: 'Alt_L',      # Qt.Key_Alt
-        0x01000023: 'Meta_L',     # Qt.Key_Meta (Windows/Command)
-        0x01000024: 'Caps_Lock',
-        0x01000025: 'Num_Lock',
-        0x01000026: 'Scroll_Lock',
-        0x01000030: 'F1',
-        0x01000031: 'F2',
-        0x01000032: 'F3',
-        0x01000033: 'F4',
-        0x01000034: 'F5',
-        0x01000035: 'F6',
-        0x01000036: 'F7',
-        0x01000037: 'F8',
-        0x01000038: 'F9',
-        0x01000039: 'F10',
-        0x0100003a: 'F11',
-        0x0100003b: 'F12',
-        0x01000010: 'Home',
-        0x01000011: 'End',
-        0x01000012: 'Left',
-        0x01000013: 'Up',
-        0x01000014: 'Right',
-        0x01000015: 'Down',
-        0x01000016: 'Page_Up',
-        0x01000017: 'Page_Down',
-        0x01000000: 'Escape',
-        0x01000001: 'Tab',
-        0x01000003: 'BackSpace',
-        0x01000004: 'Return',
-        0x01000007: 'Delete',
-        0x20: 'space',
-        # Add more as needed...
-    }
+    # Remove QT_TO_TK_KEYSYM and keysym logic
     MODIFIER_KEYS = {
         'Control_L': 0x01000021,
         'Shift_L': 0x01000020,
@@ -154,53 +118,17 @@ class PyQtStreamWindow:
         self.label.setPixmap(pixmap)
 
     def keyPressEvent(self, event):
-        key = event.key()
-        text = event.text()
-        native_vk = event.nativeVirtualKey()  # Use native VK code for Windows
-        # If this is a modifier key, send only that modifier
-        for mod_name, mod_code in self.MODIFIER_KEYS.items():
-            if key == mod_code:
-                if not self.modifier_state[mod_name]:
-                    self.modifier_state[mod_name] = True
-                    e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': native_vk})
-                    self.on_key_event('key_press', e_mod)
-                return  # Only send the modifier event
-        # Numpad number detection
-        if (0x30 <= key <= 0x39) and (event.modifiers() & self.QtCore.Qt.KeypadModifier):
-            keysym = f'KP_{chr(key)}'
-            char = chr(key)
-        elif text and len(text) == 1 and 32 <= ord(text) <= 126:
-            keysym = text
-            char = text
-        else:
-            keysym = self.QT_TO_TK_KEYSYM.get(key, str(key))
-            char = text
-        e = type('Event', (), {'keysym': keysym, 'char': char, 'keycode': native_vk})
+        keycode = event.nativeVirtualKey()
+        char = event.text()
+        print(f"[PyQt keyPressEvent] type=key_press keycode={keycode} char='{char}'")
+        e = type('Event', (), {'keycode': keycode, 'char': char})
         self.on_key_event('key_press', e)
 
     def keyReleaseEvent(self, event):
-        key = event.key()
-        text = event.text()
-        native_vk = event.nativeVirtualKey()  # Use native VK code for Windows
-        # If this is a modifier key, send only that modifier
-        for mod_name, mod_code in self.MODIFIER_KEYS.items():
-            if key == mod_code:
-                if self.modifier_state[mod_name]:
-                    self.modifier_state[mod_name] = False
-                    e_mod = type('Event', (), {'keysym': mod_name, 'char': '', 'keycode': native_vk})
-                    self.on_key_event('key_release', e_mod)
-                return  # Only send the modifier event
-        # Numpad number detection
-        if (0x30 <= key <= 0x39) and (event.modifiers() & self.QtCore.Qt.KeypadModifier):
-            keysym = f'KP_{chr(key)}'
-            char = chr(key)
-        elif text and len(text) == 1 and 32 <= ord(text) <= 126:
-            keysym = text
-            char = text
-        else:
-            keysym = self.QT_TO_TK_KEYSYM.get(key, str(key))
-            char = text
-        e = type('Event', (), {'keysym': keysym, 'char': char, 'keycode': native_vk})
+        keycode = event.nativeVirtualKey()
+        char = event.text()
+        print(f"[PyQt keyReleaseEvent] type=key_release keycode={keycode} char='{char}'")
+        e = type('Event', (), {'keycode': keycode, 'char': char})
         self.on_key_event('key_release', e)
 
     def closeEvent(self, event):
@@ -238,12 +166,8 @@ class ScreenShareClient:
         self.stream_label = None
         self.stream_thread = None
         self.control_thread = None # Thread for sending control signals
-        # --- PyQt optimization: use smaller queue for lower latency ---
-        self.stream_window_type = self.load_stream_window_type()  # 'tkinter' or 'pyqt'
-        if self.stream_window_type == 'pyqt':
-            self.image_queue = queue.Queue(maxsize=5)
-        else:
-            self.image_queue = queue.Queue(maxsize=60)
+        # --- Only use PyQt image queue size ---
+        self.image_queue = queue.Queue(maxsize=5)
         self.stop_event = threading.Event()
         self.last_ip = self.load_last_ip()
         self.connected = False
@@ -276,7 +200,7 @@ class ScreenShareClient:
             'fps_displayed': 0.0,           # Current displaying FPS
             'processing_times': [],         # List to calculate average processing time
             'max_processing_time': 0.0,
-            'queue_max_size': 60,           # Should match the image_queue size
+            'queue_max_size': 5,           # Should match the image_queue size
             # New interval tracking
             'interval_frames_received': 0,  # Frames received in current interval
             'interval_frames_displayed': 0, # Frames displayed in current interval
@@ -361,22 +285,6 @@ class ScreenShareClient:
     def setup_ui(self):
         # --- Configure Root Window (already created in __init__) --- 
         self.root.title("Screen Share Client Controls")
-        # --- Stream Window Type Selector ---
-        window_type_frame = ttk.Frame(self.root)
-        window_type_frame.pack(fill="x", padx=10, pady=(10, 0))
-        ttk.Label(window_type_frame, text="Stream Window Type:").pack(side="left", padx=(0, 5))
-        self.window_type_var = tk.StringVar(value=self.stream_window_type)
-        window_type_menu = ttk.OptionMenu(
-            window_type_frame,
-            self.window_type_var,
-            self.stream_window_type,
-            'tkinter',
-            'pyqt',
-            command=self._on_window_type_change
-        )
-        window_type_menu.pack(side="left")
-        # --- End Stream Window Type Selector ---
-        
         # --- Discovery Frame (Using Listbox) --- 
         discovery_frame = ttk.LabelFrame(self.root, text="Discovered Hosts", padding="10")
         discovery_frame.pack(fill="x", padx=10, pady=5)
@@ -472,9 +380,8 @@ class ScreenShareClient:
         self.disconnect_button = ttk.Button(controls_frame, text="Disconnect", command=self.stop, state="disabled")
         self.disconnect_button.pack(side="left", padx=5)
         
-        # Initialize stream window variable, don't create it yet
-        self.stream_window = None
-        self.canvas = None # Initialize canvas as well
+        # Remove all Tkinter stream window logic
+        self.pyqt_window = None
         
         # Bind escape key to exit
         self.root.bind('<Escape>', lambda e: self.on_closing())
@@ -487,110 +394,32 @@ class ScreenShareClient:
         # --- End Call --- 
         
     def create_stream_window(self):
-        if self.stream_window_type == 'pyqt':
-            if self.pyqt_window:
-                self.pyqt_window.close()
-            self.pyqt_window = PyQtStreamWindow(
-                max(150, self.stream_width),
-                max(30, self.stream_height),
-                self.send_key_event,
-                self.stop,
-                image_queue=self.image_queue,
-                client=self
-            )
-        else:
-            # Original Tkinter logic
-            if self.stream_window and self.stream_window.winfo_exists():
-                self.stream_window.deiconify() 
-                print("[Debug] Reusing existing stream window")
-                return
-            try:
-                print("[Debug] Creating new stream window")
-                self.stream_window = tk.Toplevel()
-                self.stream_window.title("Screen Share Stream")
-                display_width = max(150, self.stream_width)
-                display_height = max(30, self.stream_height)
-                print(f"[Debug] Stream dimensions from host: width={self.stream_width}, height={self.stream_height}")
-                print(f"[Debug] Using display dimensions: {display_width}x{display_height}")
-                display_frame = tk.Frame(self.stream_window, bg='black', width=display_width, height=display_height)
-                display_frame.pack(fill="both", expand=True)
-                display_frame.pack_propagate(False)
-                self.stream_label = tk.Label(display_frame, bg='black', width=display_width, height=display_height)
-                self.stream_label.pack(fill="both", expand=True)
-                try:
-                    black_img = Image.new('RGB', (display_width, display_height), color='black')
-                    self.tk_image = ImageTk.PhotoImage(image=black_img)
-                    self.stream_label.config(image=self.tk_image)
-                    self.stream_label.image = self.tk_image
-                    print("[Debug] Set initial black image for the stream window")
-                except Exception as img_e:
-                    print(f"[Debug] Error creating initial black image: {img_e}")
-                geometry_string = f"{display_width}x{display_height}+0+0"
-                print(f"[Debug] Setting stream window geometry: {geometry_string}")
-                self.stream_window.geometry(geometry_string)
-                self.stream_window.update_idletasks()
-                self.stream_window.attributes('-topmost', True)
-                self.stream_window.resizable(False, False)
-                self.stream_window.overrideredirect(True)
-                close_button_x = max(0, display_width - 30)
-                close_button = ttk.Button(self.stream_window, text="X", width=3, command=self.stop)
-                close_button.place(x=close_button_x, y=5)
-                self.stream_window.bind("<KeyPress>", self.on_key_press)
-                self.stream_window.bind("<KeyRelease>", self.on_key_release)
-                self.stream_window.focus_set()
-                self.stream_window.deiconify()
-                self.stream_window.lift()
-                self.stream_window.update()
-                actual_width = self.stream_window.winfo_width()
-                actual_height = self.stream_window.winfo_height()
-                print(f"[Debug] Stream window created with dimensions: {actual_width}x{actual_height}")
-                if actual_width <= 1 or actual_height <= 1:
-                    print("[Debug] Window dimensions are invalid, forcing update")
-                    self.stream_window.geometry(geometry_string)
-                    self.stream_window.update_idletasks()
-                    print(f"[Debug] Updated dimensions: {self.stream_window.winfo_width()}x{self.stream_window.winfo_height()}")
-            except Exception as e:
-                print(f"[Debug] Error creating stream window: {e}")
-                import traceback
-                traceback.print_exc()
-        
-    def on_key_press(self, event):
-        """Callback for key press events on the stream window."""
-        self.send_key_event('key_press', event)
-
-    def on_key_release(self, event):
-        """Callback for key release events on the stream window."""
-        self.send_key_event('key_release', event)
+        # Always use PyQt stream window
+        if self.pyqt_window:
+            self.pyqt_window.close()
+        self.pyqt_window = PyQtStreamWindow(
+            max(150, self.stream_width),
+            max(30, self.stream_height),
+            self.send_key_event,
+            self.stop,
+            image_queue=self.image_queue,
+            client=self
+        )
         
     def send_key_event(self, event_type, event):
         """Formats and sends key event data over the control socket."""
-        # --- REMOVED TEMPORARY LOGGING ---
-        # print(f"[Client KEY EVENT] Type={event_type}, Keysym={event.keysym}, Char='{event.char}', Keycode={event.keycode}")
-        # --- END LOGGING ---
         if self.control_socket and self.running:
             try:
-                # Focus check (optional, binding should handle it, but belt-and-suspenders)
-                # focused_widget = self.root.focus_get()
-                # if focused_widget != self.stream_window and focused_widget != self.canvas:
-                #     # print("Ignoring key event, stream window not focused")
-                #     return
-                    
-                # Use keysym for simplicity, might need keycode/char for complex mapping later
                 key_data = {
                     'type': event_type,
-                    'keysym': event.keysym,
-                    'char': event.char, # Might be empty for special keys
-                    'keycode': event.keycode # Platform-specific key code
+                    'keycode': getattr(event, 'keycode', None),
+                    'char': getattr(event, 'char', ''),
                 }
                 message = json.dumps(key_data).encode('utf-8')
-                # Simple newline termination for control messages
                 self.control_socket.sendall(message + b'\n') 
-                # print(f"Sent: {key_data}") # Verbose log
             except (socket.error, BrokenPipeError, ConnectionResetError) as e:
                 print(f"Control socket error sending key event: {e}")
-                # Consider attempting to reconnect or stopping cleanly
                 self.root.after(0, lambda: self.status_label.config(text=f"Control connection error: {e}"))
-                # self.stop() # Optionally stop if control fails
             except Exception as e:
                  print(f"Unexpected error sending key event: {e}")
 
@@ -1306,7 +1135,7 @@ class ScreenShareClient:
             'fps_displayed': 0.0,           # Current displaying FPS
             'processing_times': [],         # List to calculate average processing time
             'max_processing_time': 0.0,
-            'queue_max_size': 60,           # Should match the image_queue size
+            'queue_max_size': 5,           # Should match the image_queue size
             # New interval tracking
             'interval_frames_received': 0,  # Frames received in current interval
             'interval_frames_displayed': 0, # Frames displayed in current interval
@@ -1376,45 +1205,6 @@ class ScreenShareClient:
         except (tk.TclError, AttributeError) as e:
             # Ignore errors if UI elements don't exist yet or anymore
             pass
-
-    def load_stream_window_type(self):
-        # Load from config or default to 'tkinter'
-        try:
-            with open('client_config.json', 'r') as f:
-                cfg = json.load(f)
-                return cfg.get('stream_window_type', 'tkinter')
-        except Exception:
-            return 'tkinter'
-
-    def save_stream_window_type(self, window_type):
-        try:
-            with open('client_config.json', 'r') as f:
-                cfg = json.load(f)
-        except Exception:
-            cfg = {}
-        cfg['stream_window_type'] = window_type
-        with open('client_config.json', 'w') as f:
-            json.dump(cfg, f, indent=2)
-
-    # Add a method to allow user to select window type
-    def set_stream_window_type(self, window_type):
-        self.stream_window_type = window_type
-        self.save_stream_window_type(window_type)
-        print(f"[Config] Stream window type set to: {window_type}")
-        # Optionally recreate window if connected
-        if self.connected:
-            self.create_stream_window()
-
-    def _on_window_type_change(self, value):
-        self.set_stream_window_type(value)
-        self.window_type_var.set(self.stream_window_type)
-        # Update queue size for new window type
-        if self.stream_window_type == 'pyqt':
-            self.image_queue = queue.Queue(maxsize=5)
-        else:
-            self.image_queue = queue.Queue(maxsize=60)
-        # Save the setting
-        self.save_stream_window_type(self.stream_window_type)
 
 if __name__ == "__main__":
     client = None # Initialize client to None
