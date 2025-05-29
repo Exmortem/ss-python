@@ -748,7 +748,8 @@ class ScreenShareClient:
         """Handle logic after the stream thread exits and sockets are closed."""
         print("[handle_stream_disconnect] Handling post-disconnect logic.")
         if not self.user_initiated_disconnect:
-            self.start_reconnect_loop()
+            # Wait a bit to ensure all cleanup is done before reconnect
+            self.root.after(1000, self.start_reconnect_loop)
 
     def update_frame(self):
         # Update stats regularly regardless of frame display
