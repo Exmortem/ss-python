@@ -785,10 +785,11 @@ class ScreenShareClient:
         try:
             while self.running and self.stream_socket:
                 try:
-                    # Receive frame size
+                    print(f"[Stream] Waiting for frame size... running={self.running}, socket id={id(self.stream_socket)}")
                     size_data = self.stream_socket.recv(4)
+                    print(f"[Stream] Received size_data: {size_data} (len={len(size_data) if size_data else 0})")
                     if not size_data:
-                        print("[Stream Thread] Connection closed")
+                        print("[Stream Thread] Connection closed (no size_data)")
                         break
                     size = struct.unpack('!I', size_data)[0]
                     if size <= 0 or size > 10*1024*1024:
@@ -802,6 +803,7 @@ class ScreenShareClient:
                             print("[Stream] Connection closed while receiving frame data")
                             break
                         data += packet
+                    print(f"[Stream] Received frame data: {len(data)} bytes (expected {size})")
                     if len(data) != size:
                         print(f"[Stream] Warning: Incomplete frame data received. Expected {size}, got {len(data)}")
                         break
@@ -813,7 +815,9 @@ class ScreenShareClient:
                             continue
                         image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                     except Exception as dec_e:
+                        import traceback
                         print(f"[Stream] Error decoding frame: {dec_e}")
+                        traceback.print_exc()
                         continue
                     self.stats['frames_received'] += 1
                     self.stats['interval_frames_received'] += 1
@@ -864,10 +868,14 @@ class ScreenShareClient:
                     if frame_count % log_interval == 0:
                         print(f"[Stream] Received {frame_count} frames, Queue: {queue_size}/{queue_capacity} ({queue_fullness:.0%})")
                 except Exception as e:
+                    import traceback
                     print(f"[Stream] Error: {e}")
+                    traceback.print_exc()
                     break
         except Exception as e:
+            import traceback
             print(f"[Stream] Fatal error: {e}")
+            traceback.print_exc()
         finally:
             print(f"[Stream] Exiting, processed {frame_count} frames")
             self.last_stream_frame_count = frame_count
