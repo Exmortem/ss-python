@@ -741,9 +741,15 @@ class ScreenShareClient:
                 print("Cleared image queue before reconnect.")
             except Exception as e:
                 print(f"Error clearing image queue: {e}")
-        print("Sockets closed. Starting reconnect loop if not user-initiated...")
-        self.start_reconnect_loop()
-        
+        print("Sockets closed.")
+        # Do NOT call self.start_reconnect_loop() here!
+
+    def handle_stream_disconnect(self):
+        """Handle logic after the stream thread exits and sockets are closed."""
+        print("[handle_stream_disconnect] Handling post-disconnect logic.")
+        if not self.user_initiated_disconnect:
+            self.start_reconnect_loop()
+
     def update_frame(self):
         # Update stats regularly regardless of frame display
         current_time = time.time()
@@ -862,6 +868,9 @@ class ScreenShareClient:
             self.running = False
             self.connected = False
             self.close_sockets()
+            # Schedule reconnect from the main thread/UI, not from this thread
+            if self.root and self.root.winfo_exists():
+                self.root.after(0, self.handle_stream_disconnect)
 
     def stop(self):
         print("Stopping client...")
