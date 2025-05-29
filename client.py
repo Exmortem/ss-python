@@ -893,6 +893,7 @@ class ScreenShareClient:
 
     def stop(self):
         print("Stopping client...")
+        self.user_initiated_disconnect = True  # Only set here for manual disconnect
         # --- Cancel pending update --- 
         if self.update_id:
             try:
@@ -920,16 +921,11 @@ class ScreenShareClient:
         self.zeroconf.close()
         # --- Close PyQt window if open ---
         if self.pyqt_window:
-            try:
-                self.pyqt_window.close()
-            except Exception as e:
-                print(f"Error closing PyQt window: {e}")
-            self.pyqt_window = None
+            self.root.after(0, lambda: self._safe_close_pyqt_window())
         # Reset performance statistics
         self.reset_statistics()
         # Update UI in main thread
         self._update_ui_after_stop()
-        self.user_initiated_disconnect = True
         self.stop_reconnect_loop()
         
     def _update_ui_after_stop(self):
@@ -960,6 +956,7 @@ class ScreenShareClient:
     def on_closing(self):
         """Handle window closing"""
         print("Closing application initiated...")
+        self.user_initiated_disconnect = True  # Only set here for window close
         if self.update_id:
             try:
                 self.root.after_cancel(self.update_id)
@@ -1004,11 +1001,7 @@ class ScreenShareClient:
             pass
         # --- Close PyQt window if open ---
         if self.pyqt_window:
-            try:
-                self.pyqt_window.close()
-            except Exception as e:
-                print(f"Error closing PyQt window: {e}")
-            self.pyqt_window = None
+            self.root.after(0, lambda: self._safe_close_pyqt_window())
         try:
             if self.root.winfo_exists():
                 self.root.destroy()
