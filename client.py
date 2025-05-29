@@ -1144,7 +1144,12 @@ class ScreenShareClient:
             if self.running: # Check if still running (e.g., mainloop crashed)
                print("Main loop exited unexpectedly, ensuring cleanup...")
                self.on_closing() # Call the proper closing sequence
+        elif self:
+             print("Cleanup likely already performed by on_closing.")
+        else:
+             print("Client object not created.")
         print("Exiting application.")
+        # sys.exit(0) # Removed force exit, let Python exit normally after cleanup
 
     def on_service_select(self, event=None):
         """Handle selection change in the service listbox."""
@@ -1308,4 +1313,9 @@ if __name__ == "__main__":
         if client and client.running:
              print("Performing final cleanup via on_closing...")
              client.on_closing() # Ensure cleanup happens if start() exited prematurely
+        elif client:
+             print("Cleanup likely already performed by on_closing.")
+        else:
+             print("Client object not created.")
         print("Exiting application.")
+        # sys.exit(0) # Removed force exit, let Python exit normally after cleanup
