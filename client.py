@@ -674,87 +674,11 @@ class ScreenShareClient:
         current_time = time.time()
         if current_time - self.stats_last_update >= self.stats_update_interval:
             self.update_statistics()
-        # --- Handle window existence check for both window types ---
-        if self.stream_window_type == 'tkinter':
-            if not self.connected or self.stream_window is None or not self.stream_window.winfo_exists():
-                self.update_id = None
-                if self.connected:
-                    print("[Debug] Early exit from update_frame: stream_window missing")
-                return
-        else:  # pyqt
-            if not self.connected or self.pyqt_window is None:
-                self.update_id = None
-                return
-        # For PyQt, skip frame display logic (handled by QTimer)
-        if self.stream_window_type == 'pyqt':
-            # Only update stats and reschedule
-            if self.running:
-                try:
-                    if self.update_id:
-                        try:
-                            self.root.after_cancel(self.update_id)
-                        except:
-                            pass
-                    self.update_id = self.root.after(10, self.update_frame)
-                except Exception as sched_e:
-                    print(f"[Debug] Error scheduling next frame: {sched_e}")
-            else:
-                self.update_id = None
+        # Always reschedule update_frame for stats, even in PyQt mode
+        if not self.connected:
+            self.update_id = None
             return
-        try:
-            # Process timing
-            process_start_time = time.time()
-            queue_size = self.image_queue.qsize()
-            if self._update_frame_count % 30 == 0:
-                print(f"[Debug] Queue status: {queue_size}/60 ({queue_size/60:.0%})")
-            self._update_frame_count += 1
-            latest_img = None
-            processed_count = 0
-            if not self.image_queue.empty():
-                try:
-                    latest_img = self.image_queue.get_nowait()
-                    processed_count = 1
-                    if latest_img is None:
-                        print("[Debug] Got None image from queue!")
-                except queue.Empty:
-                    pass
-            self.stats['frames_displayed'] += processed_count
-            self.stats['interval_frames_displayed'] += processed_count
-            if latest_img:
-                try:
-                    if self.stream_window_type == 'pyqt' and self.pyqt_window:
-                        self.pyqt_window.update_image(latest_img)
-                        # Process PyQt events to keep window responsive
-                        self.pyqt_window.app.processEvents()
-                    else:
-                        # --- Existing Tkinter display logic ---
-                        if not (self.stream_window and self.stream_window.winfo_exists()):
-                            print("[Debug] Stream window doesn't exist when trying to update frame")
-                            if self.running:
-                                print("[Debug] Attempting to recreate stream window")
-                                self.create_stream_window()
-                            else:
-                                return
-                        if not hasattr(self, 'stream_label') or not self.stream_label.winfo_exists():
-                            print("[Debug] Stream label doesn't exist, recreating")
-                            display_frame = tk.Frame(self.stream_window, bg='black')
-                            display_frame.pack(fill="both", expand=True)
-                            self.stream_label = tk.Label(display_frame, bg='black')
-                            self.stream_label.pack(fill="both", expand=True)
-                        if latest_img.mode not in ['RGB', 'RGBA']:
-                            latest_img = latest_img.convert('RGB')
-                        self.tk_image = ImageTk.PhotoImage(image=latest_img)
-                        self.stream_label.config(image=self.tk_image)
-                        self.stream_label.image = self.tk_image
-                except Exception as e:
-                    print(f"[Debug] Display error: {e}")
-                    import traceback
-                    traceback.print_exc()
-        except Exception as e:
-            print(f"[Debug] Update frame error: {e}")
-            import traceback
-            traceback.print_exc()
-        # Schedule next update - always use a small fixed delay for stability
+        # For PyQt, skip frame display logic (handled by QTimer), but keep stats update
         if self.running:
             try:
                 if self.update_id:
@@ -762,7 +686,7 @@ class ScreenShareClient:
                         self.root.after_cancel(self.update_id)
                     except:
                         pass
-                self.update_id = self.root.after(10, self.update_frame)
+                self.update_id = self.root.after(100, self.update_frame)
             except Exception as sched_e:
                 print(f"[Debug] Error scheduling next frame: {sched_e}")
         else:
