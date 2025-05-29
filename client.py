@@ -111,8 +111,6 @@ class PyQtStreamWindow:
 
     def update_image(self, pil_image):
         try:
-            print("[PyQtStreamWindow] update_image called")
-            import numpy as np
             if pil_image.mode != 'RGB':
                 pil_image = pil_image.convert('RGB')
             arr = np.array(pil_image)
@@ -485,6 +483,24 @@ class ScreenShareClient:
             connected_control = False
         
             # --- Connect sockets using retrieved IP/Port --- 
+            self.close_sockets()  # Ensure cleanup before new connection
+            if hasattr(self, 'stream_thread') and self.stream_thread is not None:
+                try:
+                    if self.stream_thread.is_alive():
+                        print("Waiting for previous stream thread to exit (connect_to_selected_host)...")
+                        self.stream_thread.join(timeout=2)
+                except Exception as e:
+                    print(f"Error joining stream thread (connect_to_selected_host): {e}")
+                self.stream_thread = None
+            if hasattr(self, 'image_queue') and self.image_queue:
+                try:
+                    while not self.image_queue.empty():
+                        self.image_queue.get_nowait()
+                    print("Cleared image queue before connect (connect_to_selected_host).")
+                except Exception as e:
+                    print(f"Error clearing image queue (connect_to_selected_host): {e}")
+            self.image_queue = queue.Queue(maxsize=5)
+            # --- End robust cleanup ---
             self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.stream_socket.settimeout(5)
             self.stream_socket.connect((host_ip, stream_port))
@@ -562,7 +578,8 @@ class ScreenShareClient:
             self.save_last_ip(host_ip) # Save the IP used
             self.create_stream_window()
             # --- Start background thread --- 
-            threading.Thread(target=self.receive_stream, daemon=True).start()
+            self.stream_thread = threading.Thread(target=self.receive_stream, daemon=True)
+            self.stream_thread.start()
             # --- Kick off the first UI update --- 
             if self.update_id: # Cancel previous if any (belt-and-suspenders)
                  try: self.root.after_cancel(self.update_id)
@@ -683,24 +700,47 @@ class ScreenShareClient:
     def close_sockets(self):
         """Safely close both stream and control sockets."""
         print("Closing sockets...")
+        # Defensive: stop running and clear image queue
+        self.running = False
+        self.connected = False
+        if hasattr(self, 'stream_thread') and self.stream_thread is not None:
+            try:
+                if self.stream_thread.is_alive():
+                    print("Waiting for previous stream thread to exit...")
+                    self.stream_thread.join(timeout=2)
+            except Exception as e:
+                print(f"Error joining stream thread: {e}")
+            self.stream_thread = None
         try:
             if self.stream_socket:
-                self.stream_socket.shutdown(socket.SHUT_RDWR)
+                try:
+                    self.stream_socket.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
                 self.stream_socket.close()
-                self.stream_socket = None
                 print("Stream socket closed.")
         except Exception as e:
             print(f"Error closing stream socket: {e}")
+        self.stream_socket = None
         try:
             if self.control_socket:
-                self.control_socket.shutdown(socket.SHUT_RDWR)
+                try:
+                    self.control_socket.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
                 self.control_socket.close()
-                self.control_socket = None
                 print("Control socket closed.")
         except Exception as e:
             print(f"Error closing control socket: {e}")
-        self.connected = False
-        self.running = False
+        self.control_socket = None
+        # Clear image queue
+        if hasattr(self, 'image_queue') and self.image_queue:
+            try:
+                while not self.image_queue.empty():
+                    self.image_queue.get_nowait()
+                print("Cleared image queue before reconnect.")
+            except Exception as e:
+                print(f"Error clearing image queue: {e}")
         print("Sockets closed. Starting reconnect loop if not user-initiated...")
         self.start_reconnect_loop()
         
@@ -1130,6 +1170,27 @@ class ScreenShareClient:
 
     def manual_connect_to_host(self, host, port):
         # This is a stripped-down version of manual_connect for reconnect attempts
+        # --- Robust cleanup before reconnect ---
+        self.running = False
+        self.connected = False
+        self.close_sockets()
+        if hasattr(self, 'stream_thread') and self.stream_thread is not None:
+            try:
+                if self.stream_thread.is_alive():
+                    print("Waiting for previous stream thread to exit (reconnect)...")
+                    self.stream_thread.join(timeout=2)
+            except Exception as e:
+                print(f"Error joining stream thread (reconnect): {e}")
+            self.stream_thread = None
+        if hasattr(self, 'image_queue') and self.image_queue:
+            try:
+                while not self.image_queue.empty():
+                    self.image_queue.get_nowait()
+                print("Cleared image queue before reconnect (manual_connect_to_host).")
+            except Exception as e:
+                print(f"Error clearing image queue (manual_connect_to_host): {e}")
+        self.image_queue = queue.Queue(maxsize=5)
+        # --- End robust cleanup ---
         try:
             print(f"[Reconnect] Connecting stream to {host}:{port}...")
             self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1174,7 +1235,9 @@ class ScreenShareClient:
             self.root.after(0, lambda: self.service_listbox.config(state="disabled"))
             self.save_last_ip(host)
             self.root.after(0, self.create_stream_window)
-            threading.Thread(target=self.receive_stream, daemon=True).start()
+            # Start and track the new stream thread
+            self.stream_thread = threading.Thread(target=self.receive_stream, daemon=True)
+            self.stream_thread.start()
             if self.update_id:
                 try:
                     self.root.after(0, lambda: self.root.after_cancel(self.update_id))
