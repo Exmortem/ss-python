@@ -239,6 +239,56 @@ KEYCODE_MAP = {
     91: keyboard.Key.cmd_l,      # VK_LWIN
     92: keyboard.Key.cmd_r,      # VK_RWIN
     93: keyboard.Key.menu,       # VK_APPS
+    # Punctuation and symbol keys (US QWERTY)
+    186: keyboard.KeyCode.from_vk(186),  # ; :
+    187: keyboard.KeyCode.from_vk(187),  # = +
+    188: keyboard.KeyCode.from_vk(188),  # , <
+    189: keyboard.KeyCode.from_vk(189),  # - _
+    190: keyboard.KeyCode.from_vk(190),  # . >
+    191: keyboard.KeyCode.from_vk(191),  # / ?
+    192: keyboard.KeyCode.from_vk(192),  # ` ~
+    219: keyboard.KeyCode.from_vk(219),  # [ {
+    220: keyboard.KeyCode.from_vk(220),  # \ |
+    221: keyboard.KeyCode.from_vk(221),  # ] }
+    222: keyboard.KeyCode.from_vk(222),  # ' "
+    # Number keys (top row)
+    48: keyboard.KeyCode.from_vk(48),  # 0 )
+    49: keyboard.KeyCode.from_vk(49),  # 1 !
+    50: keyboard.KeyCode.from_vk(50),  # 2 @
+    51: keyboard.KeyCode.from_vk(51),  # 3 #
+    52: keyboard.KeyCode.from_vk(52),  # 4 $
+    53: keyboard.KeyCode.from_vk(53),  # 5 %
+    54: keyboard.KeyCode.from_vk(54),  # 6 ^
+    55: keyboard.KeyCode.from_vk(55),  # 7 &
+    56: keyboard.KeyCode.from_vk(56),  # 8 *
+    57: keyboard.KeyCode.from_vk(57),  # 9 (
+    # Letter keys (A-Z)
+    65: keyboard.KeyCode.from_vk(65),  # A
+    66: keyboard.KeyCode.from_vk(66),  # B
+    67: keyboard.KeyCode.from_vk(67),  # C
+    68: keyboard.KeyCode.from_vk(68),  # D
+    69: keyboard.KeyCode.from_vk(69),  # E
+    70: keyboard.KeyCode.from_vk(70),  # F
+    71: keyboard.KeyCode.from_vk(71),  # G
+    72: keyboard.KeyCode.from_vk(72),  # H
+    73: keyboard.KeyCode.from_vk(73),  # I
+    74: keyboard.KeyCode.from_vk(74),  # J
+    75: keyboard.KeyCode.from_vk(75),  # K
+    76: keyboard.KeyCode.from_vk(76),  # L
+    77: keyboard.KeyCode.from_vk(77),  # M
+    78: keyboard.KeyCode.from_vk(78),  # N
+    79: keyboard.KeyCode.from_vk(79),  # O
+    80: keyboard.KeyCode.from_vk(80),  # P
+    81: keyboard.KeyCode.from_vk(81),  # Q
+    82: keyboard.KeyCode.from_vk(82),  # R
+    83: keyboard.KeyCode.from_vk(83),  # S
+    84: keyboard.KeyCode.from_vk(84),  # T
+    85: keyboard.KeyCode.from_vk(85),  # U
+    86: keyboard.KeyCode.from_vk(86),  # V
+    87: keyboard.KeyCode.from_vk(87),  # W
+    88: keyboard.KeyCode.from_vk(88),  # X
+    89: keyboard.KeyCode.from_vk(89),  # Y
+    90: keyboard.KeyCode.from_vk(90),  # Z
 }
 # --- END NEW --- 
 
